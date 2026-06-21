@@ -9,7 +9,7 @@ Automated bot for **Exness + MetaTrader 5** on a **demo account**.
 
 > Trades show in your **MT5 demo** (Toolbox → Trade / History).
 
-**Full guide:** [GUIDE.md](GUIDE.md)
+**Full step-by-step AWS guide:** [GUIDE.md](GUIDE.md) — EC2, RDP, private GitHub clone, MT5, run bot.
 
 ## Setup
 

@@ -71,7 +71,8 @@ class MT5Config:
     loss_pause_seconds: int = _env_int("MT5_LOSS_PAUSE_SECONDS", 1800)
 
     # ----- Chart analysis / confluence -----
-    min_confluence_score: int = _env_int("MT5_MIN_SCORE", 70)
+    min_confluence_score: int = _env_int("MT5_MIN_SCORE", 65)
+    allow_m5_fallback: bool = _env_bool("MT5_M5_FALLBACK", True)
     trend_ema_fast: int = 20
     trend_ema_slow: int = 50
     trend_min_gap_pct: float = 0.0008

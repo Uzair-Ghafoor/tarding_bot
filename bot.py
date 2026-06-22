@@ -1,10 +1,10 @@
 """
-Exness MT5 basket scalp bot.
+Exness MT5 smart basket bot.
 
-Opens 10 tiny trades at once → when combined profit hits target,
-closes ALL → opens a fresh batch of 10. Repeat.
-
-Run on Windows AWS with Exness MT5 terminal open + demo account.
+1. Reads M15 + M5 + M1 charts (confluence score)
+2. Opens basket only on strong setup (avoids bounce traps)
+3. Closes ALL positions together on combined basket profit/loss
+4. Sized for ~$30 reference account on demo
 """
 
 from __future__ import annotations
@@ -14,13 +14,12 @@ import os
 import sys
 import time
 
+from analysis import Setup, analyze
 from config import CONFIG
 from mt5_client import MT5Client
 from recorder import Recorder
 from risk import RiskState
 from session import in_trading_session
-from strategy import entry_signal, signal_snapshot
-from trend import trend_direction
 
 
 def setup_logging() -> logging.Logger:
@@ -76,7 +75,13 @@ def _close_basket(
         count=closed,
         total_profit=round(total, 4),
     )
-    log.info("BASKET CLOSE (%s) | %s/%s tickets | total P/L $%.2f", reason, closed, len(tickets), total)
+    log.info(
+        "BASKET CLOSE (%s) | %s/%s tickets | combined P/L $%.2f",
+        reason,
+        closed,
+        len(tickets),
+        total,
+    )
 
 
 def _scan_basket_exits(
@@ -85,11 +90,13 @@ def _scan_basket_exits(
     risk: RiskState,
     positions,
 ) -> bool:
+    """Exit on combined basket P/L only — never single tickets."""
     if not positions:
         return False
 
     total = _basket_pnl(client, positions)
     age = _oldest_age(positions)
+    n = len(positions)
 
     if total >= CONFIG.basket_min_profit:
         _close_basket(client, recorder, risk, positions, "profit")
@@ -109,54 +116,55 @@ def _scan_basket_exits(
 def _open_basket(
     client: MT5Client,
     recorder: Recorder,
-    trend_side: str,
-    trend_strength: float,
+    setup: Setup,
     need: int,
 ) -> int:
-    spread = client.spread_points(CONFIG.symbol)
-    if spread > CONFIG.max_spread_points:
-        log.info("Skip basket | spread=%s pts (max %s)", spread, CONFIG.max_spread_points)
+    if not setup.ok or not setup.side:
         return 0
 
-    rates = client.rates_m1(CONFIG.symbol)
-    side = entry_signal(rates, trend_side, trend_strength)
-    if side is None:
+    spread = client.spread_points(CONFIG.symbol)
+    if spread > CONFIG.max_spread_points:
+        log.info("Skip | spread=%s (max %s)", spread, CONFIG.max_spread_points)
         return 0
 
     opened = 0
     for i in range(need):
         ticket = client.open_market(
             CONFIG.symbol,
-            side,
+            setup.side,
             CONFIG.lot_size,
             sl_points=CONFIG.stop_loss_points,
-            comment=f"basket{i + 1}",
+            comment=f"b{i + 1}",
         )
         if ticket:
             opened += 1
             recorder.log(
                 "open",
                 ticket=ticket,
-                side=side,
+                side=setup.side,
                 lot=CONFIG.lot_size,
-                trend=trend_side,
+                score=setup.score,
+                reasons=setup.reasons,
                 basket_slot=i + 1,
             )
         if i < need - 1:
             time.sleep(CONFIG.batch_open_delay)
+
     if opened:
-        log.info("BASKET OPEN | %s × %s %s | trend=%s", opened, CONFIG.lot_size, side.upper(), trend_side)
+        log.info(
+            "BASKET OPEN | %s × %.2f %s | score=%s | %s",
+            opened,
+            CONFIG.lot_size,
+            setup.side.upper(),
+            setup.score,
+            ", ".join(setup.reasons[:4]),
+        )
     return opened
 
 
 def validate_config() -> None:
     if not CONFIG.login or not CONFIG.password or not CONFIG.server:
-        raise ValueError(
-            "Set MT5_LOGIN, MT5_PASSWORD, MT5_SERVER in .env "
-            "(copy from Exness Personal Area → My accounts)."
-        )
-    if CONFIG.basket_size < 1:
-        raise ValueError("MT5_BASKET_SIZE must be at least 1")
+        raise ValueError("Set MT5_LOGIN, MT5_PASSWORD, MT5_SERVER in .env")
 
 
 def main() -> None:
@@ -166,16 +174,21 @@ def main() -> None:
     risk = RiskState()
     last_batch_at = 0.0
     last_status_at = 0.0
+    last_setup: Setup | None = None
 
     log.info("=" * 60)
     log.info(
-        "Exness basket scalp | %s | lot=%.2f | batch=%s | "
-        "close all at +$%.2f | demo=%s",
+        "Smart basket bot | %s | lot=%.2f | x%s | ref balance $%.0f",
         CONFIG.symbol,
         CONFIG.lot_size,
         CONFIG.basket_size,
+        CONFIG.reference_balance,
+    )
+    log.info(
+        "Close ALL when basket +$%.2f or stop -$%.2f | min score %s",
         CONFIG.basket_min_profit,
-        CONFIG.demo_only,
+        CONFIG.basket_max_loss,
+        CONFIG.min_confluence_score,
     )
     log.info("=" * 60)
 
@@ -183,9 +196,15 @@ def main() -> None:
         client.connect()
         symbol = client.resolve_symbol(CONFIG.symbol, CONFIG.symbol_fallbacks)
         if symbol != CONFIG.symbol:
-            log.info("Using symbol %s (configured %s)", symbol, CONFIG.symbol)
+            log.info("Symbol: %s (was %s)", symbol, CONFIG.symbol)
         CONFIG.symbol = symbol
         client.ensure_symbol(symbol)
+        bal = client.account_balance()
+        log.info(
+            "MT5 balance $%.2f (demo) | sizing risk as $%.0f account",
+            bal,
+            CONFIG.reference_balance,
+        )
     except Exception as exc:
         log.error("%s", exc)
         sys.exit(1)
@@ -193,30 +212,23 @@ def main() -> None:
     try:
         while True:
             try:
-                if not in_trading_session():
+                if CONFIG.use_session_filter and not in_trading_session():
                     if time.time() - last_status_at > 60:
-                        log.info("Outside trading session (UTC) — waiting…")
+                        log.info("Outside session (UTC) — waiting")
                         last_status_at = time.time()
                     time.sleep(5)
                     continue
 
-                if not risk.can_trade():
+                if CONFIG.use_loss_pause and not risk.can_trade():
                     if time.time() - last_status_at > 60:
-                        log.warning(
-                            "Paused after losses | %ss left",
-                            risk.pause_remaining(),
-                        )
+                        log.warning("Paused | %ss left", risk.pause_remaining())
                         last_status_at = time.time()
                     time.sleep(2)
                     continue
 
-                daily_pnl = client.today_closed_profit(CONFIG.symbol)
-                if daily_pnl <= -abs(CONFIG.max_daily_loss):
-                    log.warning("Daily loss limit (%.2f) — no new batches today.", daily_pnl)
-                    time.sleep(10)
-                    continue
+                setup = analyze(CONFIG.symbol)
+                last_setup = setup
 
-                trend_side, strength = trend_direction(CONFIG.symbol)
                 positions = client.positions(CONFIG.symbol)
                 open_count = len(positions)
 
@@ -229,49 +241,43 @@ def main() -> None:
                 flat = open_count == 0
                 partial = 0 < open_count < CONFIG.basket_size
 
-                # Recover incomplete basket (some orders failed)
-                if partial and now - last_batch_at >= CONFIG.entry_cooldown_seconds:
-                    need = CONFIG.basket_size - open_count
-                    if trend_side:
-                        _open_basket(client, recorder, trend_side, strength or 0.0, need)
+                if partial and setup.ok and now - last_batch_at >= CONFIG.entry_cooldown_seconds:
+                    _open_basket(client, recorder, setup, CONFIG.basket_size - open_count)
                     open_count = len(client.positions(CONFIG.symbol))
 
-                # New full basket when flat
                 if (
                     flat
-                    and trend_side is not None
+                    and setup.ok
                     and now - last_batch_at >= CONFIG.entry_cooldown_seconds
                 ):
-                    opened = _open_basket(
-                        client, recorder, trend_side, strength or 0.0, CONFIG.basket_size
-                    )
+                    opened = _open_basket(client, recorder, setup, CONFIG.basket_size)
                     if opened:
                         last_batch_at = now
                     open_count = len(client.positions(CONFIG.symbol))
 
-                if time.time() - last_status_at >= 8:
+                if time.time() - last_status_at >= 10:
                     basket_pnl = _basket_pnl(client, positions) if positions else 0.0
-                    extra = ""
-                    if flat and trend_side and open_count == 0:
-                        rates = client.rates_m1(CONFIG.symbol)
-                        snap = signal_snapshot(rates, trend_side)
-                        extra = (
-                            f" | wait: need {trend_side} candle (last={snap['candle']}, RSI={snap['rsi']})"
+                    daily = client.today_closed_profit(CONFIG.symbol)
+                    if open_count:
+                        log.info(
+                            "HOLD basket | open=%s/%s | combined P/L=$%.2f | "
+                            "target=+$%.2f stop=-$%.2f | daily=$%.2f",
+                            open_count,
+                            CONFIG.basket_size,
+                            basket_pnl,
+                            CONFIG.basket_min_profit,
+                            CONFIG.basket_max_loss,
+                            daily,
                         )
-                    log.info(
-                        "trend=%s (%.0f%%) | open=%s/%s | basket P/L=$%.2f | "
-                        "target=+$%.2f | daily=$%.2f | W/L=%s/%s%s",
-                        trend_side or "flat",
-                        (strength or 0) * 100,
-                        open_count,
-                        CONFIG.basket_size,
-                        basket_pnl,
-                        CONFIG.basket_min_profit,
-                        daily_pnl,
-                        risk.wins,
-                        risk.losses,
-                        extra,
-                    )
+                    else:
+                        log.info(
+                            "SCAN | score=%s | side=%s | RSI=%.0f | %s | daily=$%.2f",
+                            setup.score,
+                            setup.side or "—",
+                            setup.rsi_m1,
+                            ", ".join(setup.reasons[:5]) or "waiting",
+                            daily,
+                        )
                     last_status_at = time.time()
 
             except Exception as exc:
@@ -279,7 +285,7 @@ def main() -> None:
 
             time.sleep(CONFIG.poll_seconds)
     except KeyboardInterrupt:
-        log.info("Stopped by user.")
+        log.info("Stopped.")
     finally:
         client.shutdown()
 

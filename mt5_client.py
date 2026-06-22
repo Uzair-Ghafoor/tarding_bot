@@ -57,6 +57,11 @@ class MT5Client:
             acc.currency,
             acc.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO,
         )
+        return acc.balance
+
+    def account_balance(self) -> float:
+        acc = mt5.account_info()
+        return float(acc.balance) if acc else 0.0
 
     def shutdown(self) -> None:
         if self._connected:

@@ -29,17 +29,15 @@ def _env_float(name: str, default: float) -> float:
 
 @dataclass
 class MT5Config:
-    # ----- Exness MT5 login -----
     login: int = _env_int("MT5_LOGIN", 0)
     password: str = os.getenv("MT5_PASSWORD", "")
-    server: str = os.getenv("MT5_SERVER", "")  # copy from Exness PA e.g. Exness-MT5Trial9
+    server: str = os.getenv("MT5_SERVER", "")
     terminal_path: str = os.getenv(
         "MT5_PATH",
         r"C:\Program Files\MetaTrader 5\terminal64.exe",
     )
 
-    # ----- Symbol (Exness: often EURUSDm or XAUUSDm — check Market Watch) -----
-    symbol: str = os.getenv("MT5_SYMBOL", "EURUSDm")
+    symbol: str = os.getenv("MT5_SYMBOL", "XAUUSDm")
     symbol_fallbacks: list[str] = field(
         default_factory=lambda: os.getenv(
             "MT5_SYMBOL_FALLBACKS", "EURUSD,XAUUSDm,XAUUSD"
@@ -48,44 +46,45 @@ class MT5Config:
     lot_size: float = _env_float("MT5_LOT", 0.01)
     magic: int = _env_int("MT5_MAGIC", 880001)
 
-    # ----- Basket mode: open N at once, close ALL on combined profit -----
+    # ----- $30-style demo testing -----
+    # Exness demo may show $500k — we SIZE risk as if account were reference_balance
+    reference_balance: float = _env_float("MT5_REFERENCE_BALANCE", 30.0)
+
+    # Basket: open N trades together, close ALL on combined basket P/L only
     basket_size: int = _env_int("MT5_BASKET_SIZE", 10)
-    basket_min_profit: float = _env_float("MT5_BASKET_MIN_PROFIT", 0.60)
-    basket_max_loss: float = _env_float("MT5_BASKET_MAX_LOSS", 2.0)
+    basket_min_profit: float = _env_float("MT5_BASKET_MIN_PROFIT", 0.0)
+    basket_max_loss: float = _env_float("MT5_BASKET_MAX_LOSS", 0.0)
     batch_open_delay: float = _env_float("MT5_BATCH_OPEN_DELAY", 0.4)
+    entry_cooldown_seconds: int = _env_int("MT5_ENTRY_COOLDOWN", 30)
 
-    # Legacy names — kept in sync with basket_size
-    min_open_trades: int = _env_int("MT5_MIN_TRADES", 0)  # 0 = use basket_size
+    min_open_trades: int = _env_int("MT5_MIN_TRADES", 0)
     max_open_trades: int = _env_int("MT5_MAX_TRADES", 0)
-    entry_cooldown_seconds: int = _env_int("MT5_ENTRY_COOLDOWN", 15)
 
-    # Per-ticket fallback (only if basket disabled)
-    min_profit_close: float = _env_float("MT5_MIN_PROFIT_CLOSE", 0.12)
-    min_profit_points: int = _env_int("MT5_MIN_PROFIT_POINTS", 0)
-    spread_profit_multiplier: float = _env_float("MT5_SPREAD_PROFIT_MULT", 2.5)
+    stop_loss_points: int = _env_int("MT5_STOP_LOSS_POINTS", 250)
+    max_hold_seconds: int = _env_int("MT5_MAX_HOLD_SECONDS", 1200)
+    max_spread_points: int = _env_int("MT5_MAX_SPREAD_POINTS", 65)
 
-    stop_loss_points: int = _env_int("MT5_STOP_LOSS_POINTS", 120)
-    max_hold_seconds: int = _env_int("MT5_MAX_HOLD_SECONDS", 600)
-    max_spread_points: int = _env_int("MT5_MAX_SPREAD_POINTS", 20)
-
-    max_daily_loss: float = _env_float("MT5_MAX_DAILY_LOSS", 3.0)
+    # 0 = disabled (demo testing)
+    max_daily_loss: float = _env_float("MT5_MAX_DAILY_LOSS", 0.0)
+    use_loss_pause: bool = _env_bool("MT5_USE_LOSS_PAUSE", False)
     max_consecutive_losses: int = _env_int("MT5_MAX_CONSEC_LOSSES", 3)
     loss_pause_seconds: int = _env_int("MT5_LOSS_PAUSE_SECONDS", 1800)
 
-    # ----- M15 trend filter -----
+    # ----- Chart analysis / confluence -----
+    min_confluence_score: int = _env_int("MT5_MIN_SCORE", 70)
     trend_ema_fast: int = 20
     trend_ema_slow: int = 50
     trend_min_gap_pct: float = 0.0008
-    trend_min_strength: float = 0.25
+    m5_ema_period: int = 21
 
-    # ----- M1 entry -----
     rsi_period: int = 7
-    rsi_buy: float = 40.0
-    rsi_sell: float = 60.0
+    rsi_buy: float = 45.0
+    rsi_sell: float = 55.0
+    rsi_no_sell_above: float = 55.0   # block shorts when RSI high (bounce)
+    rsi_no_buy_below: float = 45.0
     ema_period: int = 9
 
-    # ----- Session (UTC) — London + NY overlap on Exness -----
-    use_session_filter: bool = _env_bool("MT5_USE_SESSION", True)
+    use_session_filter: bool = _env_bool("MT5_USE_SESSION", False)
     session_windows_utc: list[tuple[float, float]] = field(
         default_factory=lambda: [(7.0, 11.0), (12.0, 17.0)]
     )
@@ -98,6 +97,11 @@ class MT5Config:
             self.min_open_trades = self.basket_size
         if not self.max_open_trades:
             self.max_open_trades = self.basket_size
+        # Auto-scale basket targets from $30 reference if not set in .env
+        if self.basket_min_profit <= 0:
+            self.basket_min_profit = round(self.reference_balance * 0.015, 2)  # 1.5% = $0.45
+        if self.basket_max_loss <= 0:
+            self.basket_max_loss = round(self.reference_balance * 0.03, 2)  # 3% = $0.90
 
 
 CONFIG = MT5Config()

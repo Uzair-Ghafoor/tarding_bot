@@ -19,7 +19,7 @@ from mt5_client import MT5Client
 from recorder import Recorder
 from risk import RiskState
 from session import in_trading_session
-from strategy import entry_signal
+from strategy import entry_signal, signal_snapshot
 from trend import trend_direction
 
 
@@ -110,6 +110,7 @@ def _open_basket(
     client: MT5Client,
     recorder: Recorder,
     trend_side: str,
+    trend_strength: float,
     need: int,
 ) -> int:
     spread = client.spread_points(CONFIG.symbol)
@@ -118,7 +119,7 @@ def _open_basket(
         return 0
 
     rates = client.rates_m1(CONFIG.symbol)
-    side = entry_signal(rates, trend_side)
+    side = entry_signal(rates, trend_side, trend_strength)
     if side is None:
         return 0
 
@@ -232,7 +233,7 @@ def main() -> None:
                 if partial and now - last_batch_at >= CONFIG.entry_cooldown_seconds:
                     need = CONFIG.basket_size - open_count
                     if trend_side:
-                        _open_basket(client, recorder, trend_side, need)
+                        _open_basket(client, recorder, trend_side, strength or 0.0, need)
                     open_count = len(client.positions(CONFIG.symbol))
 
                 # New full basket when flat
@@ -241,16 +242,25 @@ def main() -> None:
                     and trend_side is not None
                     and now - last_batch_at >= CONFIG.entry_cooldown_seconds
                 ):
-                    opened = _open_basket(client, recorder, trend_side, CONFIG.basket_size)
+                    opened = _open_basket(
+                        client, recorder, trend_side, strength or 0.0, CONFIG.basket_size
+                    )
                     if opened:
                         last_batch_at = now
                     open_count = len(client.positions(CONFIG.symbol))
 
                 if time.time() - last_status_at >= 8:
                     basket_pnl = _basket_pnl(client, positions) if positions else 0.0
+                    extra = ""
+                    if flat and trend_side and open_count == 0:
+                        rates = client.rates_m1(CONFIG.symbol)
+                        snap = signal_snapshot(rates, trend_side)
+                        extra = (
+                            f" | wait: need {trend_side} candle (last={snap['candle']}, RSI={snap['rsi']})"
+                        )
                     log.info(
                         "trend=%s (%.0f%%) | open=%s/%s | basket P/L=$%.2f | "
-                        "target=+$%.2f | daily=$%.2f | W/L=%s/%s",
+                        "target=+$%.2f | daily=$%.2f | W/L=%s/%s%s",
                         trend_side or "flat",
                         (strength or 0) * 100,
                         open_count,
@@ -260,6 +270,7 @@ def main() -> None:
                         daily_pnl,
                         risk.wins,
                         risk.losses,
+                        extra,
                     )
                     last_status_at = time.time()
 

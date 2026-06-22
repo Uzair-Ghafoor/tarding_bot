@@ -13,6 +13,14 @@ from config import CONFIG
 log = logging.getLogger("mt5bot")
 
 
+def _net_profit(obj) -> float:
+    """profit + swap (+ commission if present — not on all MT5 Python builds)."""
+    profit = float(getattr(obj, "profit", 0.0) or 0.0)
+    swap = float(getattr(obj, "swap", 0.0) or 0.0)
+    commission = float(getattr(obj, "commission", 0.0) or 0.0)
+    return profit + swap + commission
+
+
 class MT5Client:
     def __init__(self):
         self._connected = False
@@ -126,7 +134,7 @@ class MT5Client:
         if not pos:
             return 0.0
         p = pos[0]
-        return float(p.profit + p.swap + p.commission)
+        return _net_profit(p)
 
     def position_points(self, ticket: int) -> int:
         pos = mt5.positions_get(ticket=ticket)
@@ -266,7 +274,7 @@ class MT5Client:
             "comment": "close_profit",
             "type_time": mt5.ORDER_TIME_GTC,
         }
-        profit = float(p.profit + p.swap + p.commission)
+        profit = _net_profit(p)
         result = self._send(request)
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
             log.warning(
@@ -297,7 +305,7 @@ class MT5Client:
             if d.symbol != symbol or d.magic != CONFIG.magic:
                 continue
             if d.entry in (mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_INOUT):
-                total += d.profit + d.swap + d.commission
+                total += _net_profit(d)
         return total
 
     def close_many(self, tickets: Iterable[int]) -> int:

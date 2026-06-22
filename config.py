@@ -46,46 +46,52 @@ class MT5Config:
     lot_size: float = _env_float("MT5_LOT", 0.01)
     magic: int = _env_int("MT5_MAGIC", 880001)
 
-    # ----- $30-style demo testing -----
-    # Exness demo may show $500k — we SIZE risk as if account were reference_balance
     reference_balance: float = _env_float("MT5_REFERENCE_BALANCE", 30.0)
 
-    # Basket: open N trades together, close ALL on combined basket P/L only
     basket_size: int = _env_int("MT5_BASKET_SIZE", 10)
     basket_min_profit: float = _env_float("MT5_BASKET_MIN_PROFIT", 0.0)
     basket_max_loss: float = _env_float("MT5_BASKET_MAX_LOSS", 0.0)
-    batch_open_delay: float = _env_float("MT5_BATCH_OPEN_DELAY", 0.4)
-    entry_cooldown_seconds: int = _env_int("MT5_ENTRY_COOLDOWN", 30)
+    batch_open_delay: float = _env_float("MT5_BATCH_OPEN_DELAY", 0.5)
+    entry_cooldown_seconds: int = _env_int("MT5_ENTRY_COOLDOWN", 90)
+    post_basket_cooldown_seconds: int = _env_int("MT5_POST_BASKET_COOLDOWN", 120)
+    basket_fill_timeout_seconds: int = _env_int("MT5_BASKET_FILL_TIMEOUT", 45)
 
     min_open_trades: int = _env_int("MT5_MIN_TRADES", 0)
     max_open_trades: int = _env_int("MT5_MAX_TRADES", 0)
 
-    stop_loss_points: int = _env_int("MT5_STOP_LOSS_POINTS", 250)
-    max_hold_seconds: int = _env_int("MT5_MAX_HOLD_SECONDS", 1200)
-    max_spread_points: int = _env_int("MT5_MAX_SPREAD_POINTS", 65)
+    # 0 = no broker SL — basket stop manages risk (avoids Invalid stops + orphan SL hits)
+    stop_loss_points: int = _env_int("MT5_STOP_LOSS_POINTS", 0)
+    max_hold_seconds: int = _env_int("MT5_MAX_HOLD_SECONDS", 900)
+    max_spread_points: int = _env_int("MT5_MAX_SPREAD_POINTS", 45)
 
-    # 0 = disabled (demo testing)
     max_daily_loss: float = _env_float("MT5_MAX_DAILY_LOSS", 0.0)
     use_loss_pause: bool = _env_bool("MT5_USE_LOSS_PAUSE", False)
     max_consecutive_losses: int = _env_int("MT5_MAX_CONSEC_LOSSES", 3)
     loss_pause_seconds: int = _env_int("MT5_LOSS_PAUSE_SECONDS", 1800)
 
-    # ----- Chart analysis / confluence -----
-    min_confluence_score: int = _env_int("MT5_MIN_SCORE", 65)
+    min_confluence_score: int = _env_int("MT5_MIN_SCORE", 75)
+    min_score_m5_fallback: int = _env_int("MT5_MIN_SCORE_FALLBACK", 85)
     allow_m5_fallback: bool = _env_bool("MT5_M5_FALLBACK", True)
+    require_h1_bias: bool = _env_bool("MT5_REQUIRE_H1", True)
+
+    h1_ema_period: int = 50
     trend_ema_fast: int = 20
     trend_ema_slow: int = 50
-    trend_min_gap_pct: float = 0.0008
+    m5_ema_fast: int = 8
+    m5_ema_slow: int = 21
     m5_ema_period: int = 21
 
-    rsi_period: int = 7
-    rsi_buy: float = 45.0
-    rsi_sell: float = 55.0
-    rsi_no_sell_above: float = 55.0   # block shorts when RSI high (bounce)
-    rsi_no_buy_below: float = 45.0
+    atr_period: int = 14
+    atr_spike_mult: float = _env_float("MT5_ATR_SPIKE", 2.2)
+
+    rsi_period: int = 14
+    rsi_buy_min: float = 40.0
+    rsi_buy_max: float = 65.0
+    rsi_sell_min: float = 35.0
+    rsi_sell_max: float = 60.0
     ema_period: int = 9
 
-    use_session_filter: bool = _env_bool("MT5_USE_SESSION", False)
+    use_session_filter: bool = _env_bool("MT5_USE_SESSION", True)
     session_windows_utc: list[tuple[float, float]] = field(
         default_factory=lambda: [(7.0, 11.0), (12.0, 17.0)]
     )
@@ -98,11 +104,10 @@ class MT5Config:
             self.min_open_trades = self.basket_size
         if not self.max_open_trades:
             self.max_open_trades = self.basket_size
-        # Auto-scale basket targets from $30 reference if not set in .env
         if self.basket_min_profit <= 0:
-            self.basket_min_profit = round(self.reference_balance * 0.015, 2)  # 1.5% = $0.45
+            self.basket_min_profit = round(self.reference_balance * 0.015, 2)
         if self.basket_max_loss <= 0:
-            self.basket_max_loss = round(self.reference_balance * 0.03, 2)  # 3% = $0.90
+            self.basket_max_loss = round(self.reference_balance * 0.03, 2)
 
 
 CONFIG = MT5Config()

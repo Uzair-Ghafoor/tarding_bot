@@ -1,10 +1,11 @@
 """
 Exness MT5 smart basket bot.
 
-1. Reads M15 + M5 + M1 charts (confluence score)
-2. Opens basket only on strong setup (avoids bounce traps)
-3. Closes ALL positions together on combined basket profit/loss
-4. Sized for ~$30 reference account on demo
+Execution rules (fixes partial-close / orphan bugs):
+- One basket at a time — fully flat before new entries
+- All N positions must open before basket P/L exit logic runs
+- Close ALL with retries; no partial basket management
+- Long cooldown after any basket close
 """
 
 from __future__ import annotations
@@ -64,24 +65,34 @@ def _close_basket(
     positions,
     reason: str,
 ) -> None:
-    total = _basket_pnl(client, positions)
-    tickets = [p.ticket for p in positions]
-    closed = client.close_many(tickets)
+    total_before = _basket_pnl(client, positions)
+    expected = len(positions)
+    closed = client.close_all(CONFIG.symbol, retries=4)
+    remaining = client.positions(CONFIG.symbol)
+    total_after = _basket_pnl(client, remaining) if remaining else 0.0
+    total = total_before if not remaining else total_before + total_after
+
     risk.record_close(total)
     recorder.log(
         "close_basket",
         reason=reason,
         tickets=closed,
         count=closed,
+        expected=expected,
+        remaining=len(remaining),
         total_profit=round(total, 4),
     )
     log.info(
-        "BASKET CLOSE (%s) | %s/%s tickets | combined P/L $%.2f",
+        "BASKET CLOSE (%s) | closed=%s expected=%s remaining=%s | P/L $%.2f",
         reason,
         closed,
-        len(tickets),
+        expected,
+        len(remaining),
         total,
     )
+    if remaining:
+        log.warning("Orphan positions remain — force closing again")
+        client.close_all(CONFIG.symbol, retries=5)
 
 
 def _scan_basket_exits(
@@ -90,13 +101,15 @@ def _scan_basket_exits(
     risk: RiskState,
     positions,
 ) -> bool:
-    """Exit on combined basket P/L only — never single tickets."""
     if not positions:
+        return False
+
+    n = len(positions)
+    if n < CONFIG.basket_size:
         return False
 
     total = _basket_pnl(client, positions)
     age = _oldest_age(positions)
-    n = len(positions)
 
     if total >= CONFIG.basket_min_profit:
         _close_basket(client, recorder, risk, positions, "profit")
@@ -128,13 +141,17 @@ def _open_basket(
         return 0
 
     opened = 0
-    for i in range(need):
+    deadline = time.time() + CONFIG.basket_fill_timeout_seconds
+    slot = 0
+
+    while opened < need and time.time() < deadline:
+        slot += 1
         ticket = client.open_market(
             CONFIG.symbol,
             setup.side,
             CONFIG.lot_size,
             sl_points=CONFIG.stop_loss_points,
-            comment=f"b{i + 1}",
+            comment=f"b{opened + 1}",
         )
         if ticket:
             opened += 1
@@ -145,10 +162,19 @@ def _open_basket(
                 lot=CONFIG.lot_size,
                 score=setup.score,
                 reasons=setup.reasons,
-                basket_slot=i + 1,
+                basket_slot=opened,
             )
-        if i < need - 1:
+        if opened < need:
             time.sleep(CONFIG.batch_open_delay)
+
+    if opened and opened < need:
+        log.warning(
+            "Basket incomplete %s/%s — closing all to avoid orphans",
+            opened,
+            need,
+        )
+        client.close_all(CONFIG.symbol, retries=4)
+        return 0
 
     if opened:
         log.info(
@@ -157,7 +183,7 @@ def _open_basket(
             CONFIG.lot_size,
             setup.side.upper(),
             setup.score,
-            ", ".join(setup.reasons[:4]),
+            ", ".join(setup.reasons[:5]),
         )
     return opened
 
@@ -172,23 +198,30 @@ def main() -> None:
     client = MT5Client()
     recorder = Recorder()
     risk = RiskState()
-    last_batch_at = 0.0
+    last_entry_at = 0.0
+    last_basket_close_at = 0.0
     last_status_at = 0.0
-    last_setup: Setup | None = None
 
     log.info("=" * 60)
     log.info(
-        "Smart basket bot | %s | lot=%.2f | x%s | ref balance $%.0f",
+        "Smart basket bot v2 | %s | lot=%.2f | x%s | ref balance $%.0f",
         CONFIG.symbol,
         CONFIG.lot_size,
         CONFIG.basket_size,
         CONFIG.reference_balance,
     )
     log.info(
-        "Close ALL when basket +$%.2f or stop -$%.2f | min score %s",
+        "Close ALL when basket +$%.2f or stop -$%.2f | min score %s (fallback %s)",
         CONFIG.basket_min_profit,
         CONFIG.basket_max_loss,
         CONFIG.min_confluence_score,
+        CONFIG.min_score_m5_fallback,
+    )
+    log.info(
+        "Cooldown %ss entry / %ss after close | no broker SL=%s",
+        CONFIG.entry_cooldown_seconds,
+        CONFIG.post_basket_cooldown_seconds,
+        CONFIG.stop_loss_points == 0,
     )
     log.info("=" * 60)
 
@@ -226,36 +259,51 @@ def main() -> None:
                     time.sleep(2)
                     continue
 
-                setup = analyze(CONFIG.symbol)
-                last_setup = setup
-
                 positions = client.positions(CONFIG.symbol)
                 open_count = len(positions)
 
                 if open_count and _scan_basket_exits(client, recorder, risk, positions):
+                    last_basket_close_at = time.time()
                     positions = client.positions(CONFIG.symbol)
                     open_count = len(positions)
-                    last_batch_at = time.time()
 
                 now = time.time()
                 flat = open_count == 0
-                partial = 0 < open_count < CONFIG.basket_size
+                cooldown_ok = (
+                    now - last_entry_at >= CONFIG.entry_cooldown_seconds
+                    and now - last_basket_close_at >= CONFIG.post_basket_cooldown_seconds
+                )
 
-                if partial and setup.ok and now - last_batch_at >= CONFIG.entry_cooldown_seconds:
-                    _open_basket(client, recorder, setup, CONFIG.basket_size - open_count)
-                    open_count = len(client.positions(CONFIG.symbol))
-
-                if (
-                    flat
-                    and setup.ok
-                    and now - last_batch_at >= CONFIG.entry_cooldown_seconds
-                ):
-                    opened = _open_basket(client, recorder, setup, CONFIG.basket_size)
-                    if opened:
-                        last_batch_at = now
-                    open_count = len(client.positions(CONFIG.symbol))
+                if flat and cooldown_ok:
+                    setup = analyze(CONFIG.symbol)
+                    if setup.ok:
+                        opened = _open_basket(client, recorder, setup, CONFIG.basket_size)
+                        if opened >= CONFIG.basket_size:
+                            last_entry_at = now
+                    elif time.time() - last_status_at >= 10:
+                        log.info(
+                            "SCAN | score=%s | side=%s | RSI=%.0f | %s | daily=$%.2f",
+                            setup.score,
+                            setup.side or "—",
+                            setup.rsi_m1,
+                            ", ".join(setup.reasons[:5]) or "waiting",
+                            client.today_closed_profit(CONFIG.symbol),
+                        )
+                        last_status_at = time.time()
+                elif not flat and open_count < CONFIG.basket_size:
+                    age = _oldest_age(positions)
+                    if age >= CONFIG.basket_fill_timeout_seconds:
+                        log.warning(
+                            "Stuck partial basket %s/%s — closing all",
+                            open_count,
+                            CONFIG.basket_size,
+                        )
+                        _close_basket(client, recorder, risk, positions, "partial_abort")
+                        last_basket_close_at = time.time()
 
                 if time.time() - last_status_at >= 10:
+                    positions = client.positions(CONFIG.symbol)
+                    open_count = len(positions)
                     basket_pnl = _basket_pnl(client, positions) if positions else 0.0
                     daily = client.today_closed_profit(CONFIG.symbol)
                     if open_count:
@@ -269,13 +317,15 @@ def main() -> None:
                             CONFIG.basket_max_loss,
                             daily,
                         )
-                    else:
+                    elif not cooldown_ok:
+                        wait = max(
+                            CONFIG.entry_cooldown_seconds - (now - last_entry_at),
+                            CONFIG.post_basket_cooldown_seconds
+                            - (now - last_basket_close_at),
+                        )
                         log.info(
-                            "SCAN | score=%s | side=%s | RSI=%.0f | %s | daily=$%.2f",
-                            setup.score,
-                            setup.side or "—",
-                            setup.rsi_m1,
-                            ", ".join(setup.reasons[:5]) or "waiting",
+                            "COOLDOWN | %.0fs left | daily=$%.2f",
+                            max(0, wait),
                             daily,
                         )
                     last_status_at = time.time()

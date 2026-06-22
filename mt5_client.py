@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Iterable
 
@@ -94,13 +95,12 @@ class MT5Client:
         info = mt5.symbol_info(symbol)
         tick = self.tick(symbol)
         if info is None:
-            return CONFIG.min_profit_close
+            return CONFIG.min_profit_close if hasattr(CONFIG, "min_profit_close") else 0.1
         spread = tick.ask - tick.bid
-        # tick_value × (spread/point) × lot — works for forex & metals on Exness
         if info.trade_tick_size > 0 and info.trade_tick_value > 0:
             ticks = spread / info.trade_tick_size
             return abs(ticks * info.trade_tick_value * lot)
-        return spread * lot * 100000 * 0.5  # rough forex fallback
+        return spread * lot * 100000 * 0.5
 
     def points_to_money(self, symbol: str, points: int, lot: float) -> float:
         info = mt5.symbol_info(symbol)
@@ -129,7 +129,7 @@ class MT5Client:
             pos = mt5.positions_get()
         if pos is None:
             err = mt5.last_error()
-            if err[0] == 1:  # no results
+            if err[0] == 1:
                 return []
             raise RuntimeError(f"positions_get failed: {err}")
         return [p for p in pos if p.magic == CONFIG.magic]
@@ -138,8 +138,7 @@ class MT5Client:
         pos = mt5.positions_get(ticket=ticket)
         if not pos:
             return 0.0
-        p = pos[0]
-        return _net_profit(p)
+        return _net_profit(pos[0])
 
     def position_points(self, ticket: int) -> int:
         pos = mt5.positions_get(ticket=ticket)
@@ -153,13 +152,11 @@ class MT5Client:
             move = p.price_open - mt5.symbol_info_tick(p.symbol).ask
         return int(round(move / info.point))
 
-    # MQL5 symbol filling_mode bit flags (not exported as mt5.SYMBOL_FILLING_* in Python)
     _FILL_FOK = 1
     _FILL_IOC = 2
     _FILL_RETURN = 4
 
     def _filling_candidates(self, symbol: str) -> list[int]:
-        """Order types to try for this symbol/broker (Exness often uses RETURN or FOK)."""
         info = mt5.symbol_info(symbol)
         if info is None:
             return [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN]
@@ -179,6 +176,25 @@ class MT5Client:
             ]
         return candidates
 
+    def _min_stop_distance(self, symbol: str) -> float:
+        info = mt5.symbol_info(symbol)
+        if info is None or info.point <= 0:
+            return 0.0
+        level = max(int(info.trade_stops_level or 0), int(info.trade_freeze_level or 0))
+        return level * info.point
+
+    def _valid_sl(self, symbol: str, side: str, price: float, sl_points: int) -> float:
+        """Return SL price or 0.0 if SL invalid / disabled."""
+        if sl_points <= 0:
+            return 0.0
+        info = mt5.symbol_info(symbol)
+        if info is None or info.point <= 0:
+            return 0.0
+        min_dist = max(self._min_stop_distance(symbol), sl_points * info.point)
+        if side == "buy":
+            return price - min_dist
+        return price + min_dist
+
     def _send(self, request: dict):
         symbol = request["symbol"]
         last_result = None
@@ -191,11 +207,7 @@ class MT5Client:
             if result.retcode == mt5.TRADE_RETCODE_DONE:
                 return result
             last_result = result
-            # Wrong filling mode — try next
-            if result.retcode in (
-                10030,  # invalid fill
-                10016,  # invalid stops (not filling — stop retrying fills)
-            ):
+            if result.retcode in (10030, 10016):
                 if result.retcode == 10016:
                     break
                 continue
@@ -210,16 +222,17 @@ class MT5Client:
         comment: str = "micro",
     ) -> int | None:
         self.ensure_symbol(symbol)
-        info = mt5.symbol_info(symbol)
         tick = self.tick(symbol)
+        sl_pts = sl_points if sl_points is not None else CONFIG.stop_loss_points
+
         if side == "buy":
             order_type = mt5.ORDER_TYPE_BUY
             price = tick.ask
-            sl = price - sl_points * info.point if sl_points else 0.0
         else:
             order_type = mt5.ORDER_TYPE_SELL
             price = tick.bid
-            sl = price + sl_points * info.point if sl_points else 0.0
+
+        sl = self._valid_sl(symbol, side, price, sl_pts)
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -227,9 +240,9 @@ class MT5Client:
             "volume": lot,
             "type": order_type,
             "price": price,
-            "sl": sl or 0.0,
+            "sl": sl,
             "tp": 0.0,
-            "deviation": 20,
+            "deviation": 30,
             "magic": CONFIG.magic,
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
@@ -257,7 +270,7 @@ class MT5Client:
     def close_position(self, ticket: int) -> bool:
         pos = mt5.positions_get(ticket=ticket)
         if not pos:
-            return False
+            return True
         p = pos[0]
         tick = self.tick(p.symbol)
         if p.type == mt5.POSITION_TYPE_BUY:
@@ -274,9 +287,9 @@ class MT5Client:
             "type": order_type,
             "position": ticket,
             "price": price,
-            "deviation": 20,
+            "deviation": 30,
             "magic": CONFIG.magic,
-            "comment": "close_profit",
+            "comment": "close_basket",
             "type_time": mt5.ORDER_TIME_GTC,
         }
         profit = _net_profit(p)
@@ -292,11 +305,14 @@ class MT5Client:
         log.info("CLOSE ticket=%s | profit=%.2f", ticket, profit)
         return True
 
-    def rates_m1(self, symbol: str, count: int = 120):
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, count)
+    def rates(self, symbol: str, timeframe: int, count: int = 120):
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
         if rates is None:
             raise RuntimeError(f"copy_rates failed: {mt5.last_error()}")
         return rates
+
+    def rates_m1(self, symbol: str, count: int = 120):
+        return self.rates(symbol, mt5.TIMEFRAME_M1, count)
 
     def today_closed_profit(self, symbol: str) -> float:
         start = datetime.now(timezone.utc).replace(
@@ -313,9 +329,34 @@ class MT5Client:
                 total += _net_profit(d)
         return total
 
-    def close_many(self, tickets: Iterable[int]) -> int:
+    def close_many(self, tickets: Iterable[int], retries: int = 3) -> int:
+        remaining = list(tickets)
         closed = 0
-        for t in tickets:
-            if self.close_position(t):
-                closed += 1
+        for _ in range(retries):
+            if not remaining:
+                break
+            still_open: list[int] = []
+            for ticket in remaining:
+                if self.close_position(ticket):
+                    closed += 1
+                else:
+                    still_open.append(ticket)
+            remaining = still_open
+            if remaining:
+                time.sleep(0.4)
+        return closed
+
+    def close_all(self, symbol: str, retries: int = 3) -> int:
+        """Close every bot position on symbol; refresh list each attempt."""
+        closed = 0
+        for _ in range(retries):
+            positions = self.positions(symbol)
+            if not positions:
+                return closed
+            tickets = [p.ticket for p in positions]
+            batch = self.close_many(tickets, retries=1)
+            closed += batch
+            if not self.positions(symbol):
+                return closed
+            time.sleep(0.5)
         return closed

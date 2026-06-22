@@ -140,24 +140,53 @@ class MT5Client:
             move = p.price_open - mt5.symbol_info_tick(p.symbol).ask
         return int(round(move / info.point))
 
-    def _filling_mode(self, symbol: str) -> int:
+    # MQL5 symbol filling_mode bit flags (not exported as mt5.SYMBOL_FILLING_* in Python)
+    _FILL_FOK = 1
+    _FILL_IOC = 2
+    _FILL_RETURN = 4
+
+    def _filling_candidates(self, symbol: str) -> list[int]:
+        """Order types to try for this symbol/broker (Exness often uses RETURN or FOK)."""
         info = mt5.symbol_info(symbol)
         if info is None:
-            return mt5.ORDER_FILLING_IOC
-        mode = info.filling_mode
-        if mode & mt5.SYMBOL_FILLING_IOC:
-            return mt5.ORDER_FILLING_IOC
-        if mode & mt5.SYMBOL_FILLING_FOK:
-            return mt5.ORDER_FILLING_FOK
-        return mt5.ORDER_FILLING_RETURN
+            return [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN]
+        mode = int(info.filling_mode)
+        candidates: list[int] = []
+        if mode & self._FILL_IOC:
+            candidates.append(mt5.ORDER_FILLING_IOC)
+        if mode & self._FILL_FOK:
+            candidates.append(mt5.ORDER_FILLING_FOK)
+        if mode & self._FILL_RETURN:
+            candidates.append(mt5.ORDER_FILLING_RETURN)
+        if not candidates:
+            candidates = [
+                mt5.ORDER_FILLING_RETURN,
+                mt5.ORDER_FILLING_FOK,
+                mt5.ORDER_FILLING_IOC,
+            ]
+        return candidates
 
     def _send(self, request: dict):
-        request["type_filling"] = self._filling_mode(request["symbol"])
-        result = mt5.order_send(request)
-        if result is None:
-            log.error("order_send returned None: %s", mt5.last_error())
-            return None
-        return result
+        symbol = request["symbol"]
+        last_result = None
+        for filling in self._filling_candidates(symbol):
+            request["type_filling"] = filling
+            result = mt5.order_send(request)
+            if result is None:
+                log.error("order_send returned None: %s", mt5.last_error())
+                continue
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                return result
+            last_result = result
+            # Wrong filling mode — try next
+            if result.retcode in (
+                10030,  # invalid fill
+                10016,  # invalid stops (not filling — stop retrying fills)
+            ):
+                if result.retcode == 10016:
+                    break
+                continue
+        return last_result
 
     def open_market(
         self,

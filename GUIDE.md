@@ -245,7 +245,7 @@ When Git asks for login:
    - **Password:** paste the **`ghp_...` token** (NOT your GitHub password)
 
 ```powershell
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 dir
 ```
 
@@ -260,7 +260,7 @@ You should see: `bot.py`, `config.py`, `setup_aws.ps1`, `.env.example`, etc.
 `.env` is **not in GitHub** (private, local only). You create it on the server.
 
 ```powershell
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 copy .env.example .env
 notepad .env
 ```
@@ -294,7 +294,7 @@ MT5_DEMO_ONLY=true
 In the same **Administrator PowerShell**:
 
 ```powershell
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 Set-ExecutionPolicy -Scope Process Bypass
 .\setup_aws.ps1
 ```
@@ -310,7 +310,7 @@ Wait until it finishes with green **Next steps** message.
 **MT5 must be open and logged into demo.**
 
 ```powershell
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 .\.venv\Scripts\python.exe test_connection.py
 ```
 
@@ -336,7 +336,7 @@ OK — ready to run bot.py
 # PART I — Start the bot (places demo trades)
 
 ```powershell
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 .\run_bot.ps1
 ```
 
@@ -362,9 +362,9 @@ BASKET CLOSE (profit) | 10/10 tickets | total P/L $0.68
 
 | File                               | What                   |
 | ---------------------------------- | ---------------------- |
-| `C:\tarding_bot\logs\bot.log`      | Main log               |
-| `C:\tarding_bot\logs\live_run.log` | Console output         |
-| `C:\tarding_bot\data\trades.jsonl` | Every open/close event |
+| `C:\Users\Administrator\trading_bot\logs\bot.log`      | Main log               |
+| `C:\Users\Administrator\trading_bot\logs\live_run.log` | Console output         |
+| `C:\Users\Administrator\trading_bot\data\trades.jsonl` | Every open/close event |
 
 ---
 
@@ -373,7 +373,7 @@ BASKET CLOSE (profit) | 10/10 tickets | total P/L $0.68
 ### J1. Schedule bot at Windows login
 
 ```powershell
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 Set-ExecutionPolicy -Scope Process Bypass
 .\install_scheduled_task.ps1
 ```
@@ -413,7 +413,7 @@ git push
 **On AWS (PowerShell):**
 
 ```powershell
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 git pull
 .\run_bot.ps1
 ```
@@ -485,7 +485,7 @@ cd C:\
 git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git tarding_bot
 
 # 2. Config (once)
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 copy .env.example .env
 notepad .env
 
@@ -494,7 +494,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\setup_aws.ps1
 
 # 4. Every time (MT5 must be open + demo logged in)
-cd C:\tarding_bot
+cd C:\Users\Administrator\trading_bot
 .\.venv\Scripts\python.exe test_connection.py
 .\run_bot.ps1
 ```
@@ -504,7 +504,7 @@ cd C:\tarding_bot
 ## File map
 
 ```
-C:\tarding_bot\
+C:\Users\Administrator\trading_bot\
 ├── bot.py              ← main bot
 ├── .env                ← YOUR secrets (never in GitHub)
 ├── .env.example        ← template (in GitHub)

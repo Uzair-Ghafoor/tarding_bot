@@ -43,23 +43,33 @@ def main() -> None:
     pnl = float(s.get("pnl", 0))
     sign = "+" if pnl >= 0 else ""
     print("─" * 48)
-    print(f"  ScalpBot paper  ·  {s.get('pair', '?')}")
+    mode = s.get("mode", "single")
+    print(f"  ScalpBot paper  ·  {s.get('pair', '?')}" + (" (multi)" if mode == "multi" else ""))
     print("─" * 48)
     print(f"  Updated    {str(s.get('ts', ''))[:19]}")
     print(f"  Uptime     {s.get('uptime_sec', 0) // 3600}h {(s.get('uptime_sec', 0) % 3600) // 60}m")
-    print(f"  Price      {s.get('price', '—')}")
-    print(f"  Balance    ${float(s.get('balance', 0)):.2f}   P/L {sign}${pnl:.2f}")
-    print(f"  Scans      {s.get('scans', 0):,}   opens {s.get('opens', 0)}  closes {s.get('closes', 0)}")
-    basket = "OPEN" if s.get("in_basket") else "flat"
-    print(f"  Basket     {basket}", end="")
-    if s.get("in_basket"):
-        print(f"  {s.get('side', '')}  mark ${float(s.get('mark_pnl', 0)):+.2f}")
+    if mode == "multi":
+        print(f"  Balance    ${float(s.get('balance', 0)):.2f}   P/L {sign}${pnl:.2f}")
+        print(f"  Scans      {s.get('scans', 0):,}   opens {s.get('opens', 0)}  closes {s.get('closes', 0)}")
+        print("  Pairs:")
+        for pname, ps in (s.get("pairs") or {}).items():
+            b = "OPEN" if ps.get("in_basket") else "flat"
+            print(f"    {pname:8} {b:5}  score={ps.get('score', 0):3}  gates={ps.get('gates_passed', 0)}/{ps.get('gates_total', 8)}  {ps.get('last_reason', '')[:36]}")
+        print("─" * 48)
     else:
-        print()
-    print(f"  Last       {s.get('last_action', '—')} — {s.get('last_reason', '')[:50]}")
-    if s.get("score") is not None:
-        print(f"  Signal     score={s.get('score')}  gates={s.get('gates_passed', '?')}/{s.get('gates_total', '?')}")
-    print("─" * 48)
+        print(f"  Price      {s.get('price', '—')}")
+        print(f"  Balance    ${float(s.get('balance', 0)):.2f}   P/L {sign}${pnl:.2f}")
+        print(f"  Scans      {s.get('scans', 0):,}   opens {s.get('opens', 0)}  closes {s.get('closes', 0)}")
+        basket = "OPEN" if s.get("in_basket") else "flat"
+        print(f"  Basket     {basket}", end="")
+        if s.get("in_basket"):
+            print(f"  {s.get('side', '')}  mark ${float(s.get('mark_pnl', 0)):+.2f}")
+        else:
+            print()
+        print(f"  Last       {s.get('last_action', '—')} — {s.get('last_reason', '')[:50]}")
+        if s.get("score") is not None:
+            print(f"  Signal     score={s.get('score')}  gates={s.get('gates_passed', '?')}/{s.get('gates_total', '?')}")
+        print("─" * 48)
 
     events = _tail_events(data_dir / "events.jsonl", 4)
     if events:

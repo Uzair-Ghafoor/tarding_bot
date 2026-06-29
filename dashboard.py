@@ -59,7 +59,8 @@ AGENT_LOG = os.path.join(DATA_DIR, "agent_decisions.jsonl")
 AUTO_LOG = os.path.join(LOG_DIR, "autopilot.log")
 RUNTIME_FILE = os.path.join(DATA_DIR, "runtime.json")
 STATUS_FILE = os.path.join(DATA_DIR, "status.json")
-WATCH_PAIRS = [p for p in ("XAUUSDT", "XAUUSD", "EURUSD", "GBPUSD") if p in PAIRS]
+PAIR_TAB_ORDER = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "XAUUSD", "XAUUSDT"]
+WATCH_PAIRS = [p for p in PAIR_TAB_ORDER if p in PAIRS]
 
 
 def _read_status() -> dict:
@@ -70,8 +71,8 @@ def _read_status() -> dict:
         return {}
 
 
-def _bot_live_state() -> dict:
-    """What autopilot is actually doing — not the journal alone."""
+def _bot_live_state(pair: str | None = None) -> dict:
+    """What autopilot is actually doing — per pair in multi mode."""
     out = {"in_basket": False, "source": "none", "mark_pnl": None, "side": None}
     status = _read_status()
     if status:
@@ -79,11 +80,20 @@ def _bot_live_state() -> dict:
             ts = datetime.fromisoformat(str(status.get("ts", "")).replace("Z", "+00:00"))
             age = (datetime.now(timezone.utc) - ts).total_seconds()
             if age < 120:
-                out["in_basket"] = bool(status.get("in_basket"))
-                out["source"] = "status.json"
-                out["mark_pnl"] = status.get("mark_pnl")
-                out["side"] = status.get("side")
-                return out
+                if status.get("mode") == "multi" and pair:
+                    ps = (status.get("pairs") or {}).get(pair, {})
+                    if ps:
+                        out["in_basket"] = bool(ps.get("in_basket"))
+                        out["source"] = "status.json"
+                        out["mark_pnl"] = ps.get("mark_pnl")
+                        out["side"] = ps.get("side")
+                        return out
+                if not pair or status.get("pair") == pair:
+                    out["in_basket"] = bool(status.get("in_basket"))
+                    out["source"] = "status.json"
+                    out["mark_pnl"] = status.get("mark_pnl")
+                    out["side"] = status.get("side")
+                    return out
         except (TypeError, ValueError):
             pass
 
@@ -153,13 +163,16 @@ def _read_runtime() -> dict:
         return {}
 
 
-def _latest_scan_meta() -> tuple[int, float]:
+def _latest_scan_meta(pair: str | None = None) -> tuple[int, float]:
     if not os.path.isfile(AUTO_LOG):
         return 0, 999.0
     try:
         with open(AUTO_LOG, encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()[-400:]
+            lines = f.readlines()[-600:]
         for line in reversed(lines):
+            if pair and f"| {pair} @" not in line and f"[{pair}]" not in line:
+                if "SCAN #" in line and " | " in line:
+                    continue
             m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*SCAN #(\d+)", line)
             if m:
                 ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
@@ -221,15 +234,16 @@ def _trade_stats(trades: list[dict], *, pair: str | None = None) -> dict:
     }
 
 
-def _push_history(adx: float, rsi: float, gates: int, *, score: int = 0, ready: bool = False) -> pd.DataFrame:
-    if "_hist" not in st.session_state:
-        st.session_state._hist = []
-    st.session_state._hist.append({
+def _push_history(adx: float, rsi: float, gates: int, *, score: int = 0, ready: bool = False, pair: str = "") -> pd.DataFrame:
+    key = f"_hist_{pair}" if pair else "_hist"
+    if key not in st.session_state:
+        st.session_state[key] = []
+    st.session_state[key].append({
         "ts": datetime.now(), "adx": float(adx), "rsi": float(rsi),
         "gates": int(gates), "score": int(score), "ready": int(ready),
     })
-    st.session_state._hist = st.session_state._hist[-150:]
-    return pd.DataFrame(st.session_state._hist)
+    st.session_state[key] = st.session_state[key][-120:]
+    return pd.DataFrame(st.session_state[key])
 
 
 def _push_tick(price: float) -> list[float]:
@@ -417,20 +431,26 @@ def _gather_state(pair: str, frames: dict, use_session: bool) -> dict:
     trades = _read_jsonl(PAPER_LOG)
     tstats = _trade_stats(trades, pair=pair)
     session_trades = _trades_since_session(trades)
-    decisions = _read_jsonl(AGENT_LOG)
+    all_decisions = _read_jsonl(AGENT_LOG)
+    decisions = [d for d in all_decisions if d.get("pair") == pair]
     da = _analyze_decisions(decisions)
-    scan_n, scan_age = _latest_scan_meta()
+    scan_n, scan_age = _latest_scan_meta(pair)
+    status = _read_status()
+    if status.get("mode") == "multi":
+        ps = (status.get("pairs") or {}).get(pair, {})
+        if ps.get("scans"):
+            scan_n = int(ps["scans"])
     if not scan_n:
         scan_n = da["total"]
     sess = session_status()
     basket = open_basket_state(session_trades, pair, snap.price)
-    bot_live = _bot_live_state()
+    bot_live = _bot_live_state(pair)
     stale_basket = bool(basket and not bot_live["in_basket"])
     if stale_basket:
         basket = None
     reasons = snap.setup.get("reasons", [])
     bias = tf_bias_strip(reasons)
-    hist = _push_history(g["adx"], g["rsi"], g["passed"], score=g["score"], ready=g["ready"])
+    hist = _push_history(g["adx"], g["rsi"], g["passed"], score=g["score"], ready=g["ready"], pair=pair)
     ready_pct = readiness_pct(g["passed"], g["total"], g["adx"], guards.min_adx, g["score"], guards.min_score)
     ww = why_waiting(reasons, g["score"], guards.min_score, g["ready"])
     wf = score_waterfall(reasons, g["score"], g["adx"], guards.min_score)
@@ -596,12 +616,165 @@ def _render_journal(trades: list[dict], tstats: dict, c: dict) -> None:
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
+def _frames_key(pair: str) -> str:
+    return f"_frames_{pair}"
+
+
+def _render_pair_live(
+    pair: str,
+    *,
+    use_session: bool,
+    runtime: dict,
+    alert_prefs: dict,
+    tick_sec: float,
+    chart_sec: float,
+    c: dict,
+) -> None:
+    fk = _frames_key(pair)
+    try:
+        if st.session_state.get(fk) is None or st.session_state.get("_pair_loaded") != pair:
+            st.session_state[fk] = _load_history(pair)
+            st.session_state._pair_loaded = pair
+            st.session_state._prev_price = None
+        frames = st.session_state[fk]
+    except Exception as e:
+        st.error(f"{pair}: {e}")
+        return
+
+    health_slot = st.empty()
+    h1, h2 = st.columns([2.5, 1])
+    with h1:
+        header_slot = st.empty()
+    with h2:
+        price_slot = st.empty()
+
+    why_slot = st.empty()
+    wf_slot = st.empty()
+    bias_slot = st.empty()
+    basket_slot = st.empty()
+    blocker_slot = st.empty()
+    stats_slot = st.empty()
+    col_chart, col_sig = st.columns([1.75, 1])
+    with col_chart:
+        main_chart_slot = st.empty()
+        ind_chart_slot = st.empty()
+        skip_chart_slot = st.empty()
+    with col_sig:
+        sidebar_slot = st.empty()
+
+    slots = {
+        "health": health_slot, "header": header_slot, "why": why_slot, "waterfall": wf_slot,
+        "bias": bias_slot, "basket": basket_slot, "blocker": blocker_slot, "stats": stats_slot,
+        "sidebar": sidebar_slot, "main_chart": main_chart_slot, "ind_chart": ind_chart_slot,
+        "skip_chart": skip_chart_slot,
+    }
+    slot_key = f"_slots_{pair}"
+    st.session_state[slot_key] = slots
+
+    def _refresh_signals() -> None:
+        fr = st.session_state[fk]
+        refresh_tick_only(fr, pair)
+        state = _gather_state(pair, fr, use_session)
+        tick_ms = st.session_state.get(f"_tick_ms_{pair}")
+        _check_alerts(pair, state["g"]["ready"], state["basket"],
+                      state["tstats"]["opens"], state["tstats"]["closes"], alert_prefs)
+        _paint_live(slots, pair, use_session, state, c, tick_ms=tick_ms, runtime=runtime)
+
+    def _paint_charts_once() -> None:
+        lock_key = f"_charts_locked_{pair}"
+        if st.session_state.get(lock_key):
+            return
+        fr = st.session_state[fk]
+        state = _gather_state(pair, fr, use_session)
+        _paint_charts(slots, pair, fr, state, c)
+        st.session_state[lock_key] = True
+
+    price_slot.markdown(
+        _price_block_html(pair, frames["last_price"], st.session_state.get(f"_prev_price_{pair}"),
+                          datetime.now().strftime("%H:%M:%S"), c,
+                          st.session_state.get(f"_tick_buf_{pair}", [])),
+        unsafe_allow_html=True,
+    )
+
+    paint_key = f"_painted_{pair}"
+    if not st.session_state.get(paint_key):
+        refresh_live_bars(st.session_state[fk], pair)
+        _refresh_signals()
+        _paint_charts_once()
+        st.session_state[paint_key] = True
+
+    force_key = f"_force_refresh_{pair}"
+    if st.session_state.pop(force_key, None):
+        refresh_live_bars(st.session_state[fk], pair)
+        st.session_state[f"_charts_locked_{pair}"] = False
+        _refresh_signals()
+        _paint_charts_once()
+
+    @st.fragment(run_every=timedelta(seconds=0.25))
+    def _live_tick() -> None:
+        try:
+            fr = st.session_state.get(fk)
+            if fr is None:
+                return
+            trades = _read_jsonl(PAPER_LOG)
+            session_trades = _trades_since_session(trades)
+            basket = open_basket_state(session_trades, pair, fr.get("last_price", 0))
+            closes_n = sum(1 for t in session_trades if t.get("event") == "close_basket" and t.get("pair") == pair)
+            min_iv = CONFIG.basket_price_sec if basket else tick_sec
+            now = time.time()
+            closes_key = f"_closes_n_{pair}"
+            last_tick_key = f"_last_tick_at_{pair}"
+            stats_due = closes_n != st.session_state.get(closes_key, 0)
+            if not stats_due and now - st.session_state.get(last_tick_key, 0) < min_iv:
+                return
+            st.session_state[last_tick_key] = now
+            st.session_state[closes_key] = closes_n
+            t0 = time.time()
+            prev = st.session_state.get(f"_prev_price_{pair}")
+            price = fetch_tick_price(pair)
+            st.session_state[f"_tick_ms_{pair}"] = (time.time() - t0) * 1000
+            st.session_state[f"_prev_price_{pair}"] = price
+            fr["last_price"] = price
+            buf_key = f"_tick_buf_{pair}"
+            if buf_key not in st.session_state:
+                st.session_state[buf_key] = []
+            buf = st.session_state[buf_key]
+            buf.append(price)
+            st.session_state[buf_key] = buf[-40:]
+            price_slot.markdown(
+                _price_block_html(pair, price, prev, datetime.now().strftime("%H:%M:%S"), c, buf),
+                unsafe_allow_html=True,
+            )
+            sl = st.session_state.get(slot_key)
+            if sl and (basket or stats_due):
+                state = _gather_state(pair, fr, use_session)
+                _paint_live(sl, pair, use_session, state, c,
+                            tick_ms=st.session_state.get(f"_tick_ms_{pair}"), runtime=runtime)
+                if stats_due:
+                    st.session_state[f"_charts_locked_{pair}"] = False
+                    _paint_charts(sl, pair, fr, state, c)
+                    st.session_state[f"_charts_locked_{pair}"] = True
+        except Exception:
+            pass
+
+    @st.fragment(run_every=timedelta(seconds=chart_sec))
+    def _live_data() -> None:
+        if st.session_state.get(slot_key) is None:
+            return
+        try:
+            _refresh_signals()
+        except Exception:
+            pass
+
+    _live_tick()
+    _live_data()
+
+
 def main() -> None:
     runtime = _read_runtime()
-    pairs = list(PAIRS.keys())
-    pair = st.session_state.get("watch_pair") or runtime.get("pair", "XAUUSDT")
-    if pair not in pairs:
-        pair = "XAUUSDT"
+    pair = st.session_state.get("watch_pair") or runtime.get("pair", WATCH_PAIRS[0])
+    if pair not in WATCH_PAIRS:
+        pair = WATCH_PAIRS[0]
     use_session = runtime.get("session_filter") is True
     if "theme" not in st.session_state:
         st.session_state.theme = "dark"
@@ -616,7 +789,7 @@ def main() -> None:
         if theme != st.session_state.theme:
             st.session_state.theme = theme
             st.rerun()
-        pair = st.selectbox("Symbol", pairs, index=pairs.index(pair))
+        pair = st.selectbox("Symbol (journal)", WATCH_PAIRS, index=WATCH_PAIRS.index(pair) if pair in WATCH_PAIRS else 0)
         st.session_state.watch_pair = pair
         use_session = st.radio("Bot mode", ["24/7 scan", "London+NY"], index=1 if use_session else 0) == "London+NY"
         tick_sec = st.slider("Price tick (sec)", 0.25, 3.0, 1.0, step=0.25)
@@ -633,7 +806,8 @@ def main() -> None:
         last_al = st.session_state.get("_last_alert", "—")
         st.caption(f"Last alert: {last_al}")
         if st.button("Force refresh", key="btn_refresh"):
-            st.session_state._force_refresh = True
+            for wp in WATCH_PAIRS:
+                st.session_state[f"_force_refresh_{wp}"] = True
         if st.button("Toggle sidebar", key="btn_sidebar"):
             st.session_state._sidebar_hidden = not st.session_state.get("_sidebar_hidden", False)
 
@@ -643,156 +817,30 @@ def main() -> None:
     tab_live, tab_journal = st.tabs(["Live", "Journal"])
 
     with tab_live:
-        watch_cols = st.columns(len(WATCH_PAIRS))
-        for i, wp in enumerate(WATCH_PAIRS):
-            if wp not in pairs:
-                continue
+        tab_labels = []
+        for wp in WATCH_PAIRS:
             rp = _cached_readiness(wp, use_session)
-            active = wp == pair
-            label = f"{wp} {'●' if active else ''} {rp:.0f}%"
-            if watch_cols[i].button(label, key=f"watch_{wp}", type="primary" if active else "secondary"):
+            status = _read_status()
+            ps = (status.get("pairs") or {}).get(wp, {}) if status.get("mode") == "multi" else {}
+            open_mark = " ●" if ps.get("in_basket") else ""
+            tab_labels.append(f"{wp}{open_mark} {rp:.0f}%")
+
+        pair_tabs = st.tabs(tab_labels)
+        for ptab, wp in zip(pair_tabs, WATCH_PAIRS):
+            with ptab:
                 st.session_state.watch_pair = wp
-                st.session_state._pair = wp
-                st.session_state._painted = False
-                st.session_state._charts_locked = False
-                st.rerun()
-
-        try:
-            if st.session_state.get("_pair") != pair:
-                st.session_state._frames = _load_history(pair)
-                st.session_state._pair = pair
-                st.session_state._prev_price = None
-            st.session_state._chart_fp = ""
-            st.session_state._painted = False
-            st.session_state._charts_locked = False
-            st.session_state._tick_buf = []
-            frames = st.session_state._frames
-            if st.session_state.get("_prev_price") is None:
-                refresh_tick_only(frames, pair)
-        except Exception as e:
-            st.error(str(e))
-            return
-
-        health_slot = st.empty()
-        h1, h2 = st.columns([2.5, 1])
-        with h1:
-            header_slot = st.empty()
-        with h2:
-            price_slot = st.empty()
-
-        why_slot = st.empty()
-        wf_slot = st.empty()
-        bias_slot = st.empty()
-        basket_slot = st.empty()
-        blocker_slot = st.empty()
-        stats_slot = st.empty()
-        col_chart, col_sig = st.columns([1.75, 1])
-        with col_chart:
-            main_chart_slot = st.empty()
-            ind_chart_slot = st.empty()
-            skip_chart_slot = st.empty()
-        with col_sig:
-            sidebar_slot = st.empty()
-
-        slots = {
-            "health": health_slot, "header": header_slot, "why": why_slot, "waterfall": wf_slot,
-            "bias": bias_slot, "basket": basket_slot, "blocker": blocker_slot, "stats": stats_slot,
-            "sidebar": sidebar_slot, "main_chart": main_chart_slot, "ind_chart": ind_chart_slot,
-            "skip_chart": skip_chart_slot,
-        }
-        st.session_state._slots = slots
-
-        def _refresh_signals() -> dict:
-            """HTML-only refresh — no Plotly, no bar refetch (no blink)."""
-            fr = st.session_state._frames
-            refresh_tick_only(fr, pair)
-            state = _gather_state(pair, fr, use_session)
-            tick_ms = st.session_state.get("_tick_ms")
-            _check_alerts(pair, state["g"]["ready"], state["basket"],
-                          state["tstats"]["opens"], state["tstats"]["closes"], alert_prefs)
-            _paint_live(slots, pair, use_session, state, _c(), tick_ms=tick_ms, runtime=runtime)
-            return state
-
-        def _paint_charts_once() -> None:
-            if st.session_state.get("_charts_locked"):
-                return
-            fr = st.session_state._frames
-            state = _gather_state(pair, fr, use_session)
-            _paint_charts(slots, pair, fr, state, _c())
-            st.session_state._charts_locked = True
-
-        price_slot.markdown(
-            _price_block_html(pair, frames["last_price"], st.session_state.get("_prev_price"),
-                              datetime.now().strftime("%H:%M:%S"), c,
-                              st.session_state.get("_tick_buf")),
-            unsafe_allow_html=True,
-        )
-
-        if not st.session_state.get("_painted"):
-            refresh_live_bars(st.session_state._frames, pair)
-            _refresh_signals()
-            _paint_charts_once()
-            st.session_state._painted = True
-
-        if st.session_state.pop("_force_refresh", None):
-            refresh_live_bars(st.session_state._frames, pair)
-            st.session_state._charts_locked = False
-            _refresh_signals()
-            _paint_charts_once()
-
-        @st.fragment(run_every=timedelta(seconds=0.25))
-        def _live_tick() -> None:
-            try:
-                fr = st.session_state.get("_frames")
-                if fr is None:
-                    return
-                trades = _read_jsonl(PAPER_LOG)
-                session_trades = _trades_since_session(trades)
-                basket = open_basket_state(session_trades, pair, fr.get("last_price", 0))
-                closes_n = sum(1 for t in session_trades if t.get("event") == "close_basket" and t.get("pair") == pair)
-                min_iv = CONFIG.basket_price_sec if basket else tick_sec
-                now = time.time()
-                stats_due = closes_n != st.session_state.get("_closes_n", 0)
-                if not stats_due and now - st.session_state.get("_last_tick_at", 0) < min_iv:
-                    return
-                st.session_state._last_tick_at = now
-                st.session_state._closes_n = closes_n
-                t0 = time.time()
-                prev = st.session_state.get("_prev_price")
-                price = fetch_tick_price(pair)
-                st.session_state._tick_ms = (time.time() - t0) * 1000
-                st.session_state._prev_price = price
-                fr["last_price"] = price
-                buf = _push_tick(price)
-                price_slot.markdown(
-                    _price_block_html(pair, price, prev, datetime.now().strftime("%H:%M:%S"), _c(), buf),
-                    unsafe_allow_html=True,
+                _render_pair_live(
+                    wp,
+                    use_session=use_session,
+                    runtime=runtime,
+                    alert_prefs=alert_prefs,
+                    tick_sec=tick_sec,
+                    chart_sec=chart_sec,
+                    c=c,
                 )
-                slots = st.session_state.get("_slots")
-                if slots and (basket or stats_due):
-                    state = _gather_state(pair, fr, use_session)
-                    _paint_live(slots, pair, use_session, state, _c(),
-                                tick_ms=st.session_state.get("_tick_ms"), runtime=runtime)
-                    if stats_due:
-                        st.session_state._charts_locked = False
-                        _paint_charts(slots, pair, fr, state, _c())
-                        st.session_state._charts_locked = True
-            except Exception:
-                pass
 
-        @st.fragment(run_every=timedelta(seconds=chart_sec))
-        def _live_data() -> None:
-            if st.session_state.get("_slots") is None:
-                return
-            try:
-                _refresh_signals()
-            except Exception:
-                pass
-
-        _live_tick()
-        _live_data()
         st.caption(
-            f"Price {tick_sec}s idle · {CONFIG.basket_price_sec}s in basket · signals {chart_sec}s · charts static"
+            f"6 pairs · price {tick_sec}s idle · {CONFIG.basket_price_sec}s in basket · signals {chart_sec}s"
         )
 
     with tab_journal:

@@ -38,6 +38,10 @@ class MT5Config:
     )
 
     symbol: str = os.getenv("MT5_SYMBOL", "XAUUSDT")
+    paper_pairs: str = os.getenv(
+        "MT5_PAPER_PAIRS",
+        "EURUSD,GBPUSD,USDJPY,AUDUSD,XAUUSD,XAUUSDT",
+    )
     symbol_fallbacks: list[str] = field(
         default_factory=lambda: os.getenv(
             "MT5_SYMBOL_FALLBACKS", "XAUUSDT,XAUUSDTm,XAUUSD,XAUUSDm"

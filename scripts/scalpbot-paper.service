@@ -9,7 +9,7 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/scalpbot
 EnvironmentFile=-/home/ubuntu/scalpbot/.env
 Environment=MT5_BASKET_PRICE_SEC=0.25
-ExecStart=/home/ubuntu/scalpbot/.venv/bin/python3 -u autopilot.py --hours 8760 --symbol XAUUSDT --no-session --brain rules --scan-sec 5 --price-sec 2 --no-sound
+ExecStart=/home/ubuntu/scalpbot/.venv/bin/python3 -u autopilot_multi.py --hours 8760 --brain rules --scan-sec 5 --price-sec 2 --no-sound
 Restart=always
 RestartSec=15
 StandardOutput=append:/home/ubuntu/scalpbot/logs/autopilot.log

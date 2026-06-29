@@ -519,22 +519,31 @@ def _paint_live(slots: dict, pair: str, use_session: bool, state: dict, c: dict,
 
     blk_cls = "blocker blocker-ready" if g["ready"] else "blocker"
     top_reason = next(iter(da["reasons"]), "—")
+    blocker_text = "ALL GATES PASS" if g["ready"] else f"{da['total']:,} scans · {top_reason}"
     slots["blocker"].markdown(
         f'<div class="{blk_cls}"><div style="font-weight:700;color:{c["green"] if g["ready"] else c["amber"]}">'
-        f'{"ALL GATES PASS" if g["ready"] else f"{da["total"]:,} scans · {top_reason}"}</div></div>',
+        f'{blocker_text}</div></div>',
         unsafe_allow_html=True,
     )
 
+    bal_s = f"${tstats['balance']:.2f}"
+    pnl_s = f"${tstats['pnl']:+.2f}"
+    pnl_col = c["green"] if tstats["pnl"] >= 0 else c["red"]
+    closed_s = str(tstats["closes"])
+    wins_s = f"{tstats['wins']}W"
+    wr_s = f"{tstats['wr']:.0f}%"
+    adx_s = f"{g['adx']:.1f}"
+    rsi_s = f"{g['rsi']:.1f}"
     slots["stats"].markdown(
         f'<div class="stat-grid">'
-        f'{stat_box("Balance", f"${tstats["balance"]:.2f}", None, c)}'
-        f'{stat_box("P/L", f"${tstats["pnl"]:+.2f}", None, c, c["green"] if tstats["pnl"] >= 0 else c["red"])}'
-        f'{stat_box("Closed", f"{tstats["closes"]}", f"{tstats["wins"]}W", c)}'
-        f'{stat_box("Win rate", f"{tstats["wr"]:.0f}%", None, c)}'
+        f'{stat_box("Balance", bal_s, None, c)}'
+        f'{stat_box("P/L", pnl_s, None, c, pnl_col)}'
+        f'{stat_box("Closed", closed_s, wins_s, c)}'
+        f'{stat_box("Win rate", wr_s, None, c)}'
         f'{stat_box("Ready", f"{ready_pct}%", None, c)}'
         f'{stat_box("Scans", f"{scan_n:,}", None, c)}'
-        f'{stat_box("ADX", f"{g["adx"]:.1f}", "bar", c)}'
-        f'{stat_box("RSI", f"{g["rsi"]:.1f}", "live", c)}'
+        f'{stat_box("ADX", adx_s, "bar", c)}'
+        f'{stat_box("RSI", rsi_s, "live", c)}'
         f'</div>'
         + (_recent_trades_html(tstats.get("closed") or [], c) if tstats.get("closed") else ""),
         unsafe_allow_html=True,

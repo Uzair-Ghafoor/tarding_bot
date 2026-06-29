@@ -1,0 +1,15 @@
+[Unit]
+Description=ScalpBot paper dashboard (Streamlit)
+After=network-online.target scalpbot-paper.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/scalpbot
+EnvironmentFile=/home/ubuntu/scalpbot/.env
+ExecStart=/home/ubuntu/scalpbot/.venv/bin/streamlit run dashboard.py --server.headless true --server.port 8501 --server.address 0.0.0.0
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

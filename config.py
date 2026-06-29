@@ -37,10 +37,10 @@ class MT5Config:
         r"C:\Program Files\MetaTrader 5\terminal64.exe",
     )
 
-    symbol: str = os.getenv("MT5_SYMBOL", "XAUUSDm")
+    symbol: str = os.getenv("MT5_SYMBOL", "XAUUSDT")
     symbol_fallbacks: list[str] = field(
         default_factory=lambda: os.getenv(
-            "MT5_SYMBOL_FALLBACKS", "EURUSD,XAUUSDm,XAUUSD"
+            "MT5_SYMBOL_FALLBACKS", "XAUUSDT,XAUUSDTm,XAUUSD,XAUUSDm"
         ).split(",")
     )
     lot_size: float = _env_float("MT5_LOT", 0.01)
@@ -59,7 +59,6 @@ class MT5Config:
     min_open_trades: int = _env_int("MT5_MIN_TRADES", 0)
     max_open_trades: int = _env_int("MT5_MAX_TRADES", 0)
 
-    # 0 = no broker SL — basket stop manages risk (avoids Invalid stops + orphan SL hits)
     stop_loss_points: int = _env_int("MT5_STOP_LOSS_POINTS", 0)
     max_hold_seconds: int = _env_int("MT5_MAX_HOLD_SECONDS", 900)
     max_spread_points: int = _env_int("MT5_MAX_SPREAD_POINTS", 45)
@@ -82,14 +81,44 @@ class MT5Config:
     m5_ema_period: int = 21
 
     atr_period: int = 14
-    atr_spike_mult: float = _env_float("MT5_ATR_SPIKE", 2.2)
+    atr_spike_mult: float = _env_float("MT5_ATR_SPIKE", 1.85)
+    atr_tp_mult: float = _env_float("MT5_ATR_TP_MULT", 0.35)
+    atr_sl_mult: float = _env_float("MT5_ATR_SL_MULT", 0.70)
+    use_atr_targets: bool = _env_bool("MT5_USE_ATR_TARGETS", True)
+
+    adx_period: int = 14
+    adx_min: float = _env_float("MT5_ADX_MIN", 22.0)
+    adx_strong: float = _env_float("MT5_ADX_STRONG", 25.0)
+
+    bb_period: int = 20
+    bb_std: float = _env_float("MT5_BB_STD", 2.0)
+    zscore_max_buy: float = _env_float("MT5_ZSCORE_MAX", 0.85)
+    zscore_min_buy: float = _env_float("MT5_ZSCORE_MIN", -2.0)
+    zscore_max_sell: float = _env_float("MT5_ZSCORE_MAX_SELL", 1.8)
+    # M5 sell entry relax (0=strict, 1=mild downtrend bypass)
+    m5_sell_relax: int = _env_int("MT5_M5_SELL_RELAX", 0)
+    m5_sell_ema_tol_pct: float = _env_float("MT5_M5_SELL_EMA_TOL", 0.0)
+    m5_sell_relax_z_floor: float = _env_float("MT5_M5_SELL_RELAX_Z_FLOOR", -2.0)
+    post_sl_cooldown_seconds: int = _env_int("MT5_POST_SL_COOLDOWN", 75)
+    startup_warmup_scans: int = _env_int("MT5_STARTUP_WARMUP_SCANS", 3)
+    atr_sl_vol_threshold: float = _env_float("MT5_ATR_SL_VOL_THRESHOLD", 1.75)
+    atr_sl_vol_boost: float = _env_float("MT5_ATR_SL_VOL_BOOST", 1.25)
+    slope_period: int = 20
 
     rsi_period: int = 14
     rsi_buy_min: float = 40.0
-    rsi_buy_max: float = 65.0
+    rsi_buy_max: float = 60.0
     rsi_sell_min: float = 35.0
     rsi_sell_max: float = 60.0
     ema_period: int = 9
+
+    # Quant risk math
+    risk_per_basket_pct: float = _env_float("MT5_RISK_PCT", 0.03)
+    kelly_fraction: float = _env_float("MT5_KELLY_FRAC", 0.5)
+    min_baskets_for_kelly: int = _env_int("MT5_MIN_BASKETS_KELLY", 8)
+    min_baskets_for_ev: int = _env_int("MT5_MIN_BASKETS_EV", 6)
+    min_expectancy: float = _env_float("MT5_MIN_EV", 0.0)
+    use_ev_gate: bool = _env_bool("MT5_USE_EV_GATE", True)
 
     use_session_filter: bool = _env_bool("MT5_USE_SESSION", True)
     session_windows_utc: list[tuple[float, float]] = field(
@@ -97,6 +126,7 @@ class MT5Config:
     )
 
     poll_seconds: float = _env_float("MT5_POLL_SECONDS", 0.5)
+    basket_price_sec: float = _env_float("MT5_BASKET_PRICE_SEC", 0.25)
     demo_only: bool = _env_bool("MT5_DEMO_ONLY", True)
 
     def __post_init__(self) -> None:

@@ -7,6 +7,9 @@ import os
 import sys
 from collections import Counter
 
+from performance import load_basket_stats
+from quant import kelly_fraction
+
 
 def main() -> None:
     path = os.path.join(os.path.dirname(__file__), "data", "trades.jsonl")
@@ -55,10 +58,13 @@ def main() -> None:
     baskets = wins + losses
     wr = wins / baskets * 100 if baskets else 0
     avg_win = win_sum / wins if wins else 0
-    avg_loss = loss_sum / losses if losses else 0
+    avg_loss = abs(loss_sum) / losses if losses else 0
+
+    stats = load_basket_stats(path)
+    hk = kelly_fraction(stats.win_rate, stats.avg_win, stats.avg_loss, 0.5)
 
     print("=" * 50)
-    print("BASKET PERFORMANCE")
+    print("BASKET PERFORMANCE (quant)")
     print("=" * 50)
     print(f"Closed baskets: {baskets}")
     print(f"Wins:   {wins}")
@@ -69,6 +75,12 @@ def main() -> None:
         print(f"Avg win:  ${avg_win:.2f}")
     if losses:
         print(f"Avg loss: ${avg_loss:.2f}")
+    if stats.baskets:
+        print(f"Expectancy (EV): ${stats.expectancy:.3f} per basket")
+        pf = stats.pf
+        print(f"Profit factor: {pf:.2f}" if pf != float("inf") else "Profit factor: inf")
+        print(f"Reward/Risk: {stats.reward_risk:.2f}")
+        print(f"Half-Kelly risk cap: {hk * 100:.1f}% of balance")
     if by_reason:
         print(f"Close reasons: {dict(by_reason)}")
     if orphan_closes:

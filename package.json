@@ -1,0 +1,15 @@
+{
+  "name": "scalpbot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Exness MT5 basket scalping bot — paper + live",
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "stop": "bash scripts/stop.sh",
+    "logs": "tail -f logs/autopilot.log",
+    "pull-logs": "bash scripts/pull-logs.sh",
+    "paper-status": "python3 scripts/paper-status.py",
+    "dashboard": "streamlit run dashboard.py --server.port 8501",
+    "bot": "python3 autopilot.py --hours 8 --symbol XAUUSDT --no-session --brain rules --scan-sec 5 --price-sec 2"
+  }
+}

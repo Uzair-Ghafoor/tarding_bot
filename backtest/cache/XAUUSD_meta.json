@@ -1,0 +1,10 @@
+{
+  "pair": "XAUUSD",
+  "mode": "hourly",
+  "source": "yahoo",
+  "h1_bars": 13184,
+  "d1_bars": 523,
+  "from": "2024-03-11 04:00:00",
+  "to": "2026-06-28 23:00:00",
+  "years_requested": 2
+}

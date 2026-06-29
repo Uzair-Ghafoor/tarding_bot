@@ -1,0 +1,10 @@
+{
+  "pair": "GBPUSD",
+  "mode": "hourly",
+  "source": "yahoo",
+  "h1_bars": 16532,
+  "d1_bars": 537,
+  "from": "2023-10-23 23:00:00",
+  "to": "2026-06-29 00:00:00",
+  "years_requested": 2
+}

@@ -1,0 +1,9 @@
+{
+  "pair": "XAUUSDT",
+  "mode": "daily",
+  "source": "binance",
+  "bars": 200,
+  "from": "2025-12-11 00:00:00",
+  "to": "2026-06-28 00:00:00",
+  "years_requested": 6
+}

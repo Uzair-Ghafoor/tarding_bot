@@ -29,7 +29,42 @@ notepad .env
 .\run_bot.ps1
 ```
 
-## Git
+## Backtest + interactive charts (Plotly, not PNG)
+
+```bash
+pip install -r requirements.txt
+python run_backtest.py                  # opens charts in browser + loss analysis
+python run_backtest.py --no-show          # tables only (headless)
+python run_backtest.py --pair EURUSD      # single-pair deep-dive
+```
+
+Run in background:  nohup python paper_bot.py --hours 48 &
+
+## Mac paper trading (no MT5)
+
+Test locally with **live Yahoo/Binance data** (~15 min delay on forex):
+
+```bash
+pip install -r requirements.txt
+
+# Terminal 1 — run the bot (logs + sounds in this window)
+python paper_bot.py --hours 48 --symbol EURUSD
+
+# Terminal 2 — live watcher (extra SCAN/HOLD lines + sounds if bot runs in background)
+python paper_watch.py
+
+# Background bot + foreground watcher:
+nohup python paper_bot.py --hours 48 > logs/paper.out 2>&1 &
+python paper_watch.py
+
+python paper_stats.py
+```
+
+**Sounds (Mac):** Glass = basket open | Hero = win close | Basso = loss close  
+Disable: `--no-sound` on either script.
+
+Logs: `data/paper_trades.jsonl` | `logs/paper_bot.log`
+
 
 ```bash
 git add .

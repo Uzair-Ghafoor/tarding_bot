@@ -1,12 +1,14 @@
 """
-Multi-timeframe chart analysis — H1 bias, M15 trend, M5 entry, M1 timing.
+Multi-timeframe analysis with quantitative filters.
 
-Based on common XAUUSD scalping practice:
-- H1 EMA for trend bias (only trade with higher-TF direction)
-- M15 EMA stack for trend confirmation
-- M5 pullback + confirmed candle close for entry
-- RSI 40–65 (buy) / 35–60 (sell) — avoid overextended entries
-- ATR spike filter to skip news volatility
+Math layer:
+- H1 EMA bias (higher-TF direction)
+- M15 EMA trend + regression slope (momentum)
+- ADX trend strength (skip chop when ADX < threshold)
+- M5 pullback on closed candle
+- Z-score: block entries when price is statistically extended
+- ATR volatility ratio: skip news spikes
+- RSI zone filter (40–65 buy / 35–60 sell)
 """
 
 from __future__ import annotations
@@ -17,44 +19,15 @@ import MetaTrader5 as mt5
 import numpy as np
 
 from config import CONFIG
-
-
-def _ema(values: np.ndarray, period: int) -> float:
-    if len(values) < period:
-        return float(values[-1])
-    alpha = 2.0 / (period + 1.0)
-    ema = float(values[0])
-    for v in values[1:]:
-        ema = alpha * float(v) + (1.0 - alpha) * ema
-    return ema
-
-
-def _rsi(closes: np.ndarray, period: int) -> float:
-    if len(closes) < period + 2:
-        return 50.0
-    delta = np.diff(closes)
-    gains = np.where(delta > 0, delta, 0.0)
-    losses = np.where(delta < 0, -delta, 0.0)
-    avg_gain = gains[-period:].mean()
-    avg_loss = losses[-period:].mean()
-    if avg_loss == 0:
-        return 100.0
-    rs = avg_gain / avg_loss
-    return float(100.0 - (100.0 / (1.0 + rs)))
-
-
-def _atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    if len(closes) < period + 2:
-        return float(highs[-1] - lows[-1])
-    trs = []
-    for i in range(1, len(closes)):
-        tr = max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1]),
-        )
-        trs.append(tr)
-    return float(np.mean(trs[-period:]))
+from quant import (
+    adx as calc_adx,
+    atr as calc_atr,
+    bollinger_zscore,
+    ema_last,
+    regression_slope,
+    rsi as calc_rsi,
+    volatility_ratio,
+)
 
 
 def _rates(symbol: str, tf: int, count: int):
@@ -63,7 +36,7 @@ def _rates(symbol: str, tf: int, count: int):
 
 
 def _h1_bias(c1h: np.ndarray, price: float) -> tuple[str | None, list[str]]:
-    ema = _ema(c1h, CONFIG.h1_ema_period)
+    ema = ema_last(c1h, CONFIG.h1_ema_period)
     if price > ema * 1.0002:
         return "buy", ["H1_bullish"]
     if price < ema * 0.9998:
@@ -73,8 +46,9 @@ def _h1_bias(c1h: np.ndarray, price: float) -> tuple[str | None, list[str]]:
 
 def _m15_trend(c15: np.ndarray, price: float) -> tuple[str | None, int, list[str]]:
     reasons: list[str] = []
-    ema_f = _ema(c15, CONFIG.trend_ema_fast)
-    ema_s = _ema(c15, CONFIG.trend_ema_slow)
+    ema_f = ema_last(c15, CONFIG.trend_ema_fast)
+    ema_s = ema_last(c15, CONFIG.trend_ema_slow)
+    slope = regression_slope(c15, CONFIG.slope_period)
     score = 0
     side: str | None = None
 
@@ -88,6 +62,9 @@ def _m15_trend(c15: np.ndarray, price: float) -> tuple[str | None, int, list[str
         if float(c15[-1]) > float(c15[-5]):
             score += 10
             reasons.append("M15_higher_close")
+        if slope > 0:
+            score += 8
+            reasons.append("M15_slope_up")
     elif ema_f < ema_s and price <= ema_s:
         side = "sell"
         score += 30
@@ -98,25 +75,22 @@ def _m15_trend(c15: np.ndarray, price: float) -> tuple[str | None, int, list[str
         if float(c15[-1]) < float(c15[-5]):
             score += 10
             reasons.append("M15_lower_close")
+        if slope < 0:
+            score += 8
+            reasons.append("M15_slope_down")
 
     return side, score, reasons
 
 
-def _m5_entry(
-    m5,
-    c5: np.ndarray,
-    price: float,
-    side: str,
-) -> tuple[bool, int, list[str]]:
-    """Require completed M5 candle confirmation (not mid-candle)."""
+def _m5_entry(m5, c5: np.ndarray, price: float, side: str) -> tuple[bool, int, list[str]]:
     reasons: list[str] = []
     score = 0
     if len(m5) < 4:
         return False, 0, ["M5_short_history"]
 
-    bar = m5[-2]  # last closed M5 bar
-    ema_fast = _ema(c5, CONFIG.m5_ema_fast)
-    ema_slow = _ema(c5, CONFIG.m5_ema_slow)
+    bar = m5[-2]
+    ema_fast = ema_last(c5, CONFIG.m5_ema_fast)
+    ema_slow = ema_last(c5, CONFIG.m5_ema_slow)
     bull = bar["close"] > bar["open"]
     bear = bar["close"] < bar["open"]
 
@@ -156,27 +130,51 @@ def _m5_entry(
     return True, score, reasons
 
 
-def _rsi_ok(side: str, rsi: float) -> tuple[bool, int, list[str]]:
+def _rsi_ok(side: str, rsi_val: float) -> tuple[bool, int, list[str]]:
     reasons: list[str] = []
     if side == "buy":
-        if rsi > CONFIG.rsi_buy_max:
-            reasons.append(f"RSI_overbought({rsi:.0f})")
+        if rsi_val > CONFIG.rsi_buy_max:
+            reasons.append(f"RSI_overbought({rsi_val:.0f})")
             return False, -40, reasons
-        if rsi < CONFIG.rsi_buy_min:
-            reasons.append(f"RSI_weak({rsi:.0f})")
+        if rsi_val < CONFIG.rsi_buy_min:
+            reasons.append(f"RSI_weak({rsi_val:.0f})")
             return False, -20, reasons
-        score = 15 if CONFIG.rsi_buy_min <= rsi <= CONFIG.rsi_buy_max else 5
-        reasons.append(f"RSI_ok({rsi:.0f})")
+        score = 15
+        reasons.append(f"RSI_ok({rsi_val:.0f})")
         return True, score, reasons
 
-    if rsi < CONFIG.rsi_sell_min:
-        reasons.append(f"RSI_oversold({rsi:.0f})")
+    if rsi_val < CONFIG.rsi_sell_min:
+        reasons.append(f"RSI_oversold({rsi_val:.0f})")
         return False, -40, reasons
-    if rsi > CONFIG.rsi_sell_max:
-        reasons.append(f"RSI_weak({rsi:.0f})")
+    if rsi_val > CONFIG.rsi_sell_max:
+        reasons.append(f"RSI_weak({rsi_val:.0f})")
         return False, -20, reasons
-    score = 15 if CONFIG.rsi_sell_min <= rsi <= CONFIG.rsi_sell_max else 5
-    reasons.append(f"RSI_ok({rsi:.0f})")
+    score = 15
+    reasons.append(f"RSI_ok({rsi_val:.0f})")
+    return True, score, reasons
+
+
+def _zscore_ok(side: str, z: float) -> tuple[bool, int, list[str]]:
+    reasons: list[str] = []
+    if side == "buy":
+        if z > CONFIG.zscore_max_buy:
+            reasons.append(f"Z_extended({z:.2f})")
+            return False, -25, reasons
+        if z < CONFIG.zscore_min_buy:
+            reasons.append(f"Z_weak({z:.2f})")
+            return False, -10, reasons
+        score = 10 if z <= 0.5 else 5
+        reasons.append(f"Z_ok({z:.2f})")
+        return True, score, reasons
+
+    if z < -CONFIG.zscore_max_sell:
+        reasons.append(f"Z_extended({z:.2f})")
+        return False, -25, reasons
+    if z > -CONFIG.zscore_min_buy:
+        reasons.append(f"Z_weak({z:.2f})")
+        return False, -10, reasons
+    score = 10 if z >= -0.5 else 5
+    reasons.append(f"Z_ok({z:.2f})")
     return True, score, reasons
 
 
@@ -189,6 +187,11 @@ class Setup:
     m15_trend: str | None
     m5_momentum: str | None
     used_fallback: bool = False
+    adx: float = 0.0
+    z_score: float = 0.0
+    slope_m15: float = 0.0
+    atr_m5: float = 0.0
+    vol_ratio: float = 1.0
 
     @property
     def ok(self) -> bool:
@@ -212,26 +215,52 @@ def analyze(symbol: str) -> Setup:
 
     c1h = np.array([r["close"] for r in h1], dtype=float)
     c15 = np.array([r["close"] for r in m15], dtype=float)
+    h15 = np.array([r["high"] for r in m15], dtype=float)
+    l15 = np.array([r["low"] for r in m15], dtype=float)
     c5 = np.array([r["close"] for r in m5], dtype=float)
     h5 = np.array([r["high"] for r in m5], dtype=float)
     l5 = np.array([r["low"] for r in m5], dtype=float)
     c1 = np.array([r["close"] for r in m1], dtype=float)
 
     price = float(c1[-1])
-    rsi1 = _rsi(c1, CONFIG.rsi_period)
-    atr5 = _atr(h5, l5, c5, CONFIG.atr_period)
-    atr_avg = _atr(h5, l5, c5, CONFIG.atr_period * 3)
-    if atr_avg > 0 and atr5 > atr_avg * CONFIG.atr_spike_mult:
-        return Setup(None, 0, [f"ATR_spike({atr5:.2f})"], rsi1, None, None)
+    rsi1 = calc_rsi(c1, CONFIG.rsi_period)
+    atr5 = calc_atr(h5, l5, c5, CONFIG.atr_period)
+    atr_avg = calc_atr(h5, l5, c5, CONFIG.atr_period * 3)
+    vol_r = volatility_ratio(atr5, atr_avg)
+    adx_val = calc_adx(h15, l15, c15, CONFIG.adx_period)
+    z = bollinger_zscore(c5, CONFIG.bb_period, CONFIG.bb_std)
+    slope15 = regression_slope(c15, CONFIG.slope_period)
+
+    if vol_r > CONFIG.atr_spike_mult:
+        return Setup(
+            None, 0, [f"ATR_spike(ratio={vol_r:.2f})"], rsi1, None, None,
+            adx=adx_val, z_score=z, slope_m15=slope15, atr_m5=atr5, vol_ratio=vol_r,
+        )
+
+    if adx_val < CONFIG.adx_min:
+        return Setup(
+            None, 0, [f"ADX_weak({adx_val:.0f})"], rsi1, None, None,
+            adx=adx_val, z_score=z, slope_m15=slope15, atr_m5=atr5, vol_ratio=vol_r,
+        )
 
     score = 0
     reasons: list[str] = []
     used_fallback = False
 
+    if adx_val >= CONFIG.adx_strong:
+        score += 10
+        reasons.append(f"ADX_strong({adx_val:.0f})")
+    else:
+        score += 5
+        reasons.append(f"ADX_ok({adx_val:.0f})")
+
     h1_side, h1_reasons = _h1_bias(c1h, price)
     reasons.extend(h1_reasons)
     if h1_side is None and CONFIG.require_h1_bias:
-        return Setup(None, score, reasons, rsi1, None, None)
+        return Setup(
+            None, score, reasons, rsi1, None, None,
+            adx=adx_val, z_score=z, slope_m15=slope15, atr_m5=atr5, vol_ratio=vol_r,
+        )
     if h1_side:
         score += 15
 
@@ -241,7 +270,7 @@ def analyze(symbol: str) -> Setup:
 
     side = m15_side
     if not side and CONFIG.allow_m5_fallback:
-        ema5 = _ema(c5, CONFIG.m5_ema_slow)
+        ema5 = ema_last(c5, CONFIG.m5_ema_slow)
         up = float(c5[-1]) > float(c5[-6]) and price >= ema5
         down = float(c5[-1]) < float(c5[-6]) and price <= ema5
         if up:
@@ -256,44 +285,79 @@ def analyze(symbol: str) -> Setup:
             used_fallback = True
         else:
             reasons.append("M15_no_trend")
-            return Setup(None, score, reasons, rsi1, m15_side, None)
+            return Setup(
+                None, score, reasons, rsi1, m15_side, None, used_fallback,
+                adx_val, z, slope15, atr5, vol_r,
+            )
 
     if h1_side and side and h1_side != side:
         reasons.append(f"H1_conflict({h1_side})")
-        return Setup(None, score, reasons, rsi1, m15_side, None)
+        return Setup(
+            None, score, reasons, rsi1, m15_side, None, used_fallback,
+            adx_val, z, slope15, atr5, vol_r,
+        )
 
     m5_ok, s5, r5 = _m5_entry(m5, c5, price, side)
     reasons.extend(r5)
     if not m5_ok:
-        return Setup(None, score, reasons, rsi1, m15_side, None)
+        return Setup(
+            None, score, reasons, rsi1, m15_side, None, used_fallback,
+            adx_val, z, slope15, atr5, vol_r,
+        )
     score += s5
+
+    z_ok, s_z, r_z = _zscore_ok(side, z)
+    reasons.extend(r_z)
+    if not z_ok:
+        score += s_z
+        score = max(0, score)
+        return Setup(
+            None, score, reasons, rsi1, m15_side, side, used_fallback,
+            adx_val, z, slope15, atr5, vol_r,
+        )
+    score += s_z
 
     rsi_ok, s_rsi, r_rsi = _rsi_ok(side, rsi1)
     reasons.extend(r_rsi)
     if not rsi_ok:
         score += s_rsi
         score = max(0, score)
-        return Setup(None, score, reasons, rsi1, m15_side, side, used_fallback)
+        return Setup(
+            None, score, reasons, rsi1, m15_side, side, used_fallback,
+            adx_val, z, slope15, atr5, vol_r,
+        )
     score += s_rsi
 
     last1 = m1[-2] if len(m1) >= 2 else m1[-1]
-    ema1 = _ema(c1, CONFIG.ema_period)
+    ema1 = ema_last(c1, CONFIG.ema_period)
     if side == "buy":
         if last1["close"] <= last1["open"]:
             reasons.append("M1_need_green")
-            return Setup(None, score, reasons, rsi1, m15_side, side, used_fallback)
+            return Setup(
+                None, score, reasons, rsi1, m15_side, side, used_fallback,
+                adx_val, z, slope15, atr5, vol_r,
+            )
         if price < ema1 * 0.999:
             reasons.append("M1_below_ema")
-            return Setup(None, score, reasons, rsi1, m15_side, side, used_fallback)
+            return Setup(
+                None, score, reasons, rsi1, m15_side, side, used_fallback,
+                adx_val, z, slope15, atr5, vol_r,
+            )
         score += 10
         reasons.append("M1_confirms")
     else:
         if last1["close"] >= last1["open"]:
             reasons.append("M1_need_red")
-            return Setup(None, score, reasons, rsi1, m15_side, side, used_fallback)
+            return Setup(
+                None, score, reasons, rsi1, m15_side, side, used_fallback,
+                adx_val, z, slope15, atr5, vol_r,
+            )
         if price > ema1 * 1.001:
             reasons.append("M1_above_ema")
-            return Setup(None, score, reasons, rsi1, m15_side, side, used_fallback)
+            return Setup(
+                None, score, reasons, rsi1, m15_side, side, used_fallback,
+                adx_val, z, slope15, atr5, vol_r,
+            )
         score += 10
         reasons.append("M1_confirms")
 
@@ -302,4 +366,7 @@ def analyze(symbol: str) -> Setup:
     if score < min_score:
         side = None
 
-    return Setup(side, score, reasons, rsi1, m15_side, side, used_fallback)
+    return Setup(
+        side, score, reasons, rsi1, m15_side, side, used_fallback,
+        adx_val, z, slope15, atr5, vol_r,
+    )

@@ -1,0 +1,9 @@
+{
+  "pair": "AUDUSD",
+  "mode": "daily",
+  "source": "yahoo",
+  "bars": 2622,
+  "from": "2016-05-31 00:00:00",
+  "to": "2026-06-27 00:00:00",
+  "years_requested": 10
+}

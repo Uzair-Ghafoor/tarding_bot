@@ -9,9 +9,9 @@ REMOTE_DIR="${PAPER_REMOTE_DIR:-~/scalpbot}"
 
 if [[ -z "$HOST" ]]; then
   if [[ -f "$ROOT/.env" ]]; then
-    # shellcheck disable=SC1090
-    source <(grep -E '^PAPER_HOST=' "$ROOT/.env" | sed 's/^/export /')
-    HOST="${PAPER_HOST:-}"
+    HOST="$(grep -E '^PAPER_HOST=' "$ROOT/.env" | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    REMOTE_DIR="$(grep -E '^PAPER_REMOTE_DIR=' "$ROOT/.env" | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    REMOTE_DIR="${REMOTE_DIR:-~/scalpbot}"
   fi
 fi
 

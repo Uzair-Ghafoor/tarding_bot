@@ -58,7 +58,69 @@ PAPER_LOG = os.path.join(DATA_DIR, "paper_trades.jsonl")
 AGENT_LOG = os.path.join(DATA_DIR, "agent_decisions.jsonl")
 AUTO_LOG = os.path.join(LOG_DIR, "autopilot.log")
 RUNTIME_FILE = os.path.join(DATA_DIR, "runtime.json")
+STATUS_FILE = os.path.join(DATA_DIR, "status.json")
 WATCH_PAIRS = [p for p in ("XAUUSDT", "XAUUSD", "EURUSD", "GBPUSD") if p in PAIRS]
+
+
+def _read_status() -> dict:
+    try:
+        with open(STATUS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _bot_live_state() -> dict:
+    """What autopilot is actually doing — not the journal alone."""
+    out = {"in_basket": False, "source": "none", "mark_pnl": None, "side": None}
+    status = _read_status()
+    if status:
+        try:
+            ts = datetime.fromisoformat(str(status.get("ts", "")).replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - ts).total_seconds()
+            if age < 120:
+                out["in_basket"] = bool(status.get("in_basket"))
+                out["source"] = "status.json"
+                out["mark_pnl"] = status.get("mark_pnl")
+                out["side"] = status.get("side")
+                return out
+        except (TypeError, ValueError):
+            pass
+
+    if not os.path.isfile(AUTO_LOG):
+        return out
+    try:
+        with open(AUTO_LOG, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()[-200:]
+        saw_open = False
+        for line in reversed(lines):
+            if "EXEC CLOSE" in line:
+                out["in_basket"] = False
+                out["source"] = "log"
+                return out
+            if "HOLD |" in line and "Managing open basket" in line:
+                out["in_basket"] = True
+                out["source"] = "log"
+                m = re.search(r"mark=\$([+-]?[\d.]+)", line)
+                if m:
+                    out["mark_pnl"] = float(m.group(1))
+                m2 = re.search(r"HOLD \| (\w+)", line)
+                if m2:
+                    out["side"] = m2.group(1)
+                return out
+            if "EXEC OPEN |" in line:
+                saw_open = True
+            if "SCAN #" in line and "OPEN=NO" in line and not saw_open:
+                out["in_basket"] = False
+                out["source"] = "log"
+                return out
+            if "SCAN #" in line and "OPEN=YES" in line:
+                out["in_basket"] = True
+                out["source"] = "log"
+                return out
+    except OSError:
+        pass
+    return out
 
 
 def _c() -> dict:
@@ -268,20 +330,38 @@ def _all_gates_html(g: dict, guards, use_session: bool, c: dict) -> str:
     side = g["side"]
     z_ok = g["gates"]["z_score"] if side else False
     rsi_ok = g["gates"]["rsi"] if side else False
-    align_ok = bool(side and g["gates"]["score"])
     sess_ok = g["gates"]["session"] if use_session else True
-    z_tgt = guards.max_z_buy
-    z_cur = abs(g["z"])
+
+    if not side:
+        rsi_cell = gate_cell_html("RSI", f'{g["rsi"]:.0f} · need side', False, c)
+        z_cell = gate_cell_html("Z", f'{g["z"]:.2f} · need side', False, c)
+    elif side == "sell":
+        z_cell = gate_progress_html(
+            "Z", abs(g["z"]), guards.max_z_sell, ok=z_ok, higher_is_good=False, c=c,
+        )
+        rsi_cell = gate_progress_html(
+            "RSI", g["rsi"], guards.rsi_sell_max,
+            ok=rsi_ok, higher_is_good=True, c=c,
+        )
+    else:
+        z_cell = gate_progress_html(
+            "Z", abs(g["z"]), guards.max_z_buy, ok=z_ok, higher_is_good=False, c=c,
+        )
+        rsi_cell = gate_progress_html(
+            "RSI", g["rsi"], guards.rsi_buy_max,
+            ok=rsi_ok, higher_is_good=True, c=c,
+        )
+
     return (
         f'<div class="gate-grid">'
         f'{gate_progress_html("ADX", g["adx"], guards.min_adx, ok=g["gates"]["adx"], higher_is_good=True, c=c)}'
         f'{gate_progress_html("Score", g["score"], guards.min_score, ok=g["gates"]["score"], higher_is_good=True, c=c)}'
-        f'{gate_progress_html("RSI", g["rsi"], 60.0, ok=rsi_ok, higher_is_good=True, c=c)}'
-        f'{gate_progress_html("Z", z_cur, z_tgt, ok=z_ok, higher_is_good=False, c=c)}'
+        f'{rsi_cell}'
+        f'{z_cell}'
         f'{gate_progress_html("ATR", g["vol"], guards.max_vol_ratio, ok=g["gates"]["atr_spike"], higher_is_good=False, c=c)}'
         f'{gate_cell_html("Sess", "24/7" if not use_session else "L/NY", sess_ok, c)}'
         f'{gate_cell_html("Side", (side or "—").upper(), g["gates"]["side"], c)}'
-        f'{gate_cell_html("Align", "TF", align_ok, c)}'
+        f'{gate_cell_html("Fallback", "off" if guards.block_fallback else "allow", g["gates"]["fallback"], c)}'
         f'</div>'
     )
 
@@ -344,6 +424,10 @@ def _gather_state(pair: str, frames: dict, use_session: bool) -> dict:
         scan_n = da["total"]
     sess = session_status()
     basket = open_basket_state(session_trades, pair, snap.price)
+    bot_live = _bot_live_state()
+    stale_basket = bool(basket and not bot_live["in_basket"])
+    if stale_basket:
+        basket = None
     reasons = snap.setup.get("reasons", [])
     bias = tf_bias_strip(reasons)
     hist = _push_history(g["adx"], g["rsi"], g["passed"], score=g["score"], ready=g["ready"])
@@ -354,7 +438,7 @@ def _gather_state(pair: str, frames: dict, use_session: bool) -> dict:
         "snap": snap, "g": g, "guards": guards, "tstats": tstats, "da": da, "scan_n": scan_n,
         "scan_age": scan_age, "sess": sess, "basket": basket, "bias": bias, "hist": hist,
         "ready_pct": ready_pct, "decisions": decisions, "markers": trade_markers(session_trades, pair),
-        "reasons": reasons, "why": ww, "waterfall": wf,
+        "reasons": reasons, "why": ww, "waterfall": wf, "bot_live": bot_live, "stale_basket": stale_basket,
     }
 
 
@@ -410,7 +494,7 @@ def _paint_live(slots: dict, pair: str, use_session: bool, state: dict, c: dict,
         pnl_c = c["green"] if basket["mark_pnl"] >= 0 else c["red"]
         held = f"{basket['held_sec']//60}m {basket['held_sec']%60}s"
         slots["basket"].markdown(
-            f'<div class="basket-panel"><div style="color:{c["blue"]};font-weight:700">OPEN BASKET · {basket["side"].upper()}</div>'
+            f'<div class="basket-panel"><div style="color:{c["blue"]};font-weight:700">OPEN BASKET · {basket["side"].upper()} · bot live</div>'
             f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px">'
             f'<div><div class="t-label">Entry</div><div class="mono">{_fmt_price(pair, basket["entry"])}</div></div>'
             f'<div><div class="t-label">Mark P/L</div><div class="mono" style="color:{pnl_c}">${basket["mark_pnl"]:+.2f}</div></div>'
@@ -418,6 +502,16 @@ def _paint_live(slots: dict, pair: str, use_session: bool, state: dict, c: dict,
             f'<div><div class="t-label">Stop</div><div class="mono" style="color:{c["red"]}">-${basket["sl"]:.2f}</div></div>'
             f'<div><div class="t-label">Held</div><div class="mono">{held}</div></div></div>'
             f'{basket_pnl_gauge(basket, c)}</div>',
+            unsafe_allow_html=True,
+        )
+    elif state.get("stale_basket"):
+        slots["basket"].markdown(
+            f'<div class="basket-panel" style="border-color:{c["amber"]}">'
+            f'<div style="color:{c["amber"]};font-weight:700">BOT FLAT — no live trade</div>'
+            f'<div style="margin-top:8px;color:{c["muted"]};font-size:13px">'
+            f'The dashboard was showing profit on an <b>already closed</b> trade. '
+            f'Only autopilot closes baskets (every 0.25s when live). '
+            f'Restart: <code>npm run stop && npm run dev</code></div></div>',
             unsafe_allow_html=True,
         )
     else:

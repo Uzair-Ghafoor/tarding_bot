@@ -1,0 +1,225 @@
+2026-06-29 06:46:24 | INFO | Brain: rules engine (add ANTHROPIC_API_KEY + AGENT_BRAIN=claude for production)
+2026-06-29 06:46:24 | INFO | ==============================================================
+2026-06-29 06:46:24 | INFO | AUTOPILOT | XAUUSDT | 8760.0h | brain=rules | mode=paper
+2026-06-29 06:46:24 | INFO | Guards: score>=75, ADX>=22 | balance=$30.00
+2026-06-29 06:46:24 | INFO | Scan every 5.0s | price every 2.0s (0.25s in basket) | history every 300s
+2026-06-29 06:46:24 | INFO | Session: False
+2026-06-29 06:46:24 | INFO | ==============================================================
+2026-06-29 06:46:25 | INFO | PIPELINE | history loaded | price=4063.45000 | bars m15=168
+2026-06-29 06:46:25 | INFO | SCAN #1 | XAUUSDT @ 4063.45000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.3 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:46:25 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:46:29 | INFO | SCAN #2 | XAUUSDT @ 4063.45000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.8 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:46:29 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:46:34 | INFO | SCAN #3 | XAUUSDT @ 4064.13000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=38.5 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:46:34 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:46:39 | INFO | SCAN #4 | XAUUSDT @ 4064.28000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=38.1 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:46:39 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:46:44 | INFO | SCAN #5 | XAUUSDT @ 4064.11000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.9 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:46:44 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:46:50 | INFO | SCAN #6 | XAUUSDT @ 4064.11000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.7 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:46:50 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:46:55 | INFO | SCAN #7 | XAUUSDT @ 4063.80000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.6 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:46:55 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:00 | INFO | SCAN #8 | XAUUSDT @ 4063.94000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.7 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:00 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:05 | INFO | SCAN #9 | XAUUSDT @ 4063.93000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.7 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:05 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:10 | INFO | SCAN #10 | XAUUSDT @ 4063.86000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.6 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:10 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:11 | WARNING | Price refresh failed: No 5m data for XAUUSDT
+2026-06-29 06:47:15 | INFO | SCAN #11 | XAUUSDT @ 4064.27000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=38.4 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:15 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:20 | INFO | SCAN #12 | XAUUSDT @ 4064.10000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.8 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:20 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:25 | INFO | SCAN #13 | XAUUSDT @ 4063.98000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.8 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:25 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:31 | INFO | SCAN #14 | XAUUSDT @ 4064.17000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.9 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:31 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:35 | INFO | SCAN #15 | XAUUSDT @ 4062.54000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.0 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:35 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:41 | INFO | SCAN #16 | XAUUSDT @ 4062.54000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=36.5 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:41 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:46 | INFO | SCAN #17 | XAUUSDT @ 4063.08000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.1 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:46 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:51 | INFO | SCAN #18 | XAUUSDT @ 4063.08000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.1 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:51 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:47:57 | INFO | SCAN #19 | XAUUSDT @ 4063.75000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.7 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:47:57 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:01 | INFO | SCAN #20 | XAUUSDT @ 4063.90000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.7 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:01 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:06 | INFO | SCAN #21 | XAUUSDT @ 4064.07000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.8 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:06 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:12 | INFO | SCAN #22 | XAUUSDT @ 4064.07000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=38.3 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:12 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:17 | INFO | SCAN #23 | XAUUSDT @ 4064.21000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=38.2 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:17 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:23 | INFO | SCAN #24 | XAUUSDT @ 4064.15000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=37.8 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:23 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:28 | INFO | SCAN #25 | XAUUSDT @ 4064.32000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=39.3 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:28 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:33 | INFO | SCAN #26 | XAUUSDT @ 4065.11000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=39.2 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:33 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:38 | INFO | SCAN #27 | XAUUSDT @ 4065.49000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=40.1 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:38 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:44 | INFO | SCAN #28 | XAUUSDT @ 4066.14000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=40.8 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:44 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:49 | INFO | SCAN #29 | XAUUSDT @ 4066.24000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=40.8 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:49 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:54 | INFO | SCAN #30 | XAUUSDT @ 4066.50000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=41.1 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:54 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:48:59 | INFO | SCAN #31 | XAUUSDT @ 4066.50000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=41.1 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:48:59 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:49:05 | INFO | SCAN #32 | XAUUSDT @ 4066.50000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=41.2 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:49:05 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:49:10 | INFO | SCAN #33 | XAUUSDT @ 4066.59000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=41.2 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:49:10 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:49:16 | INFO | SCAN #34 | XAUUSDT @ 4066.59000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=41.5 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:49:16 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:49:20 | INFO | SCAN #35 | XAUUSDT @ 4066.87000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=41.3 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:49:20 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike
+2026-06-29 06:49:25 | INFO | SCAN #36 | XAUUSDT @ 4066.65000
+  side=— | score=0/75 NO | ADX=56.0/22 OK
+  RSI=41.6 need 40-60 — | Z=-1.13 need ≤0.85 —
+  ATR×=2.09 max 2.0 NO | session OK | H1+M15+M5 NO
+  gates 3/8 | OPEN=NO | ATR_spike
+2026-06-29 06:49:25 | INFO | BRAIN [rules] → SKIP | conf=80% | ATR_spike

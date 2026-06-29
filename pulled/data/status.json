@@ -1,0 +1,22 @@
+{
+  "ts": "2026-06-29T06:49:20.745606+00:00",
+  "uptime_sec": 176,
+  "pair": "XAUUSDT",
+  "brain": "rules",
+  "price": 4066.87,
+  "balance": 30.0,
+  "pnl": 0.0,
+  "scans": 35,
+  "opens": 0,
+  "closes": 0,
+  "skips": 35,
+  "in_basket": false,
+  "side": null,
+  "mark_pnl": 0,
+  "last_action": "skip",
+  "last_reason": "ATR_spike",
+  "score": 0,
+  "gates_passed": 3,
+  "gates_total": 8,
+  "ready": false
+}

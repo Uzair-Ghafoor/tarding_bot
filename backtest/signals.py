@@ -79,9 +79,10 @@ def _slice_hl(df: pd.DataFrame, end_idx: int, n: int) -> tuple[np.ndarray, np.nd
 def _h1_bias(d1: pd.DataFrame, d_idx: int, price: float) -> tuple[str | None, list[str]]:
     c = _slice_closes(d1, d_idx, 80)
     ema = ema_last(c, CONFIG.h1_ema_period)
-    if price > ema * 1.0002:
+    tol = CONFIG.h1_ema_tol_pct
+    if price > ema * (1 + tol):
         return "buy", ["H1_bullish"]
-    if price < ema * 0.9998:
+    if price < ema * (1 - tol):
         return "sell", ["H1_bearish"]
     return None, ["H1_flat"]
 
@@ -186,7 +187,10 @@ def evaluate_at(
             return BarSetup(None, score, reasons + ["M15_no_trend"], rsi_val, adx_val, z, atr5, vol_r)
 
     if h1_side and side and h1_side != side:
-        return BarSetup(None, score, reasons + ["H1_conflict"], rsi_val, adx_val, z, atr5, vol_r)
+        if CONFIG.block_h1_conflict:
+            return BarSetup(None, score, reasons + ["H1_conflict"], rsi_val, adx_val, z, atr5, vol_r)
+        reasons.append("H1_conflict_soft")
+        score = max(0, score - 8)
 
     # M5 entry on previous H1 bar
     if h_idx < 2:

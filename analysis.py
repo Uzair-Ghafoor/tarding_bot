@@ -37,9 +37,10 @@ def _rates(symbol: str, tf: int, count: int):
 
 def _h1_bias(c1h: np.ndarray, price: float) -> tuple[str | None, list[str]]:
     ema = ema_last(c1h, CONFIG.h1_ema_period)
-    if price > ema * 1.0002:
+    tol = CONFIG.h1_ema_tol_pct
+    if price > ema * (1 + tol):
         return "buy", ["H1_bullish"]
-    if price < ema * 0.9998:
+    if price < ema * (1 - tol):
         return "sell", ["H1_bearish"]
     return None, ["H1_flat"]
 
@@ -291,11 +292,14 @@ def analyze(symbol: str) -> Setup:
             )
 
     if h1_side and side and h1_side != side:
-        reasons.append(f"H1_conflict({h1_side})")
-        return Setup(
-            None, score, reasons, rsi1, m15_side, None, used_fallback,
-            adx_val, z, slope15, atr5, vol_r,
-        )
+        if CONFIG.block_h1_conflict:
+            reasons.append(f"H1_conflict({h1_side})")
+            return Setup(
+                None, score, reasons, rsi1, m15_side, None, used_fallback,
+                adx_val, z, slope15, atr5, vol_r,
+            )
+        reasons.append(f"H1_conflict_soft({h1_side})")
+        score = max(0, score - 8)
 
     m5_ok, s5, r5 = _m5_entry(m5, c5, price, side)
     reasons.extend(r5)

@@ -76,7 +76,8 @@ class MT5Config:
     min_score_m5_fallback: int = _env_int("MT5_MIN_SCORE_FALLBACK", 85)
     allow_m5_fallback: bool = _env_bool("MT5_M5_FALLBACK", True)
     require_h1_bias: bool = _env_bool("MT5_REQUIRE_H1", True)
-
+    block_h1_conflict: bool = _env_bool("MT5_BLOCK_H1_CONFLICT", True)
+    h1_ema_tol_pct: float = _env_float("MT5_H1_EMA_TOL", 0.0002)
     h1_ema_period: int = 50
     trend_ema_fast: int = 20
     trend_ema_slow: int = 50
@@ -110,10 +111,10 @@ class MT5Config:
     slope_period: int = 20
 
     rsi_period: int = 14
-    rsi_buy_min: float = 40.0
-    rsi_buy_max: float = 60.0
-    rsi_sell_min: float = 35.0
-    rsi_sell_max: float = 60.0
+    rsi_buy_min: float = _env_float("MT5_RSI_BUY_MIN", 40.0)
+    rsi_buy_max: float = _env_float("MT5_RSI_BUY_MAX", 60.0)
+    rsi_sell_min: float = _env_float("MT5_RSI_SELL_MIN", 35.0)
+    rsi_sell_max: float = _env_float("MT5_RSI_SELL_MAX", 60.0)
     ema_period: int = 9
 
     # Quant risk math

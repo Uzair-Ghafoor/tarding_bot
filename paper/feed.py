@@ -1,4 +1,4 @@
-"""Live OHLC feed for Mac paper trading (no MT5). Binance XAUUSDT tick + bars (Exness MT5 symbol)."""
+"""Live OHLC feed for paper trading — Binance XAUUSDT tick + bars."""
 
 from __future__ import annotations
 

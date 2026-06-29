@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from backtest.engine import _pnl_at_price, _spread_cost
+from paper.fees import paper_pnl_spread
+from backtest.engine import _pnl_at_price
 from backtest.guards import TradeGuards
 from backtest.pairs import PAIRS
 from config import CONFIG
@@ -184,13 +185,15 @@ def open_basket_state(trades: list[dict], pair: str, price: float) -> dict | Non
     ob = find_open_row(trades, pair)
     if ob is None:
         return None
-    spec = PAIRS.get(pair, PAIRS["EURUSD"])
+    spec = PAIRS.get(pair, PAIRS["XAUUSDT"])
     side = ob.get("side", "buy")
     entry = float(ob.get("price", price))
     tp = float(ob.get("tp", CONFIG.basket_min_profit))
     sl = float(ob.get("sl", CONFIG.basket_max_loss))
-    spread = _spread_cost(spec, CONFIG.basket_size)
+    spread = paper_pnl_spread(spec, CONFIG.basket_size)
     mark = _pnl_at_price(spec, side, entry, price, CONFIG.basket_size, spread)
+    open_fees = float(ob.get("fees", 0))
+    mark -= open_fees
     try:
         opened = datetime.fromisoformat(ob["ts"].replace("Z", "+00:00"))
         held = int((datetime.now(timezone.utc) - opened).total_seconds())

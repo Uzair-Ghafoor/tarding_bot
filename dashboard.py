@@ -59,8 +59,8 @@ AGENT_LOG = os.path.join(DATA_DIR, "agent_decisions.jsonl")
 AUTO_LOG = os.path.join(LOG_DIR, "autopilot.log")
 RUNTIME_FILE = os.path.join(DATA_DIR, "runtime.json")
 STATUS_FILE = os.path.join(DATA_DIR, "status.json")
-PAIR_TAB_ORDER = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "XAUUSD", "XAUUSDT"]
-WATCH_PAIRS = [p for p in PAIR_TAB_ORDER if p in PAIRS]
+PAIR_TAB_ORDER = ["XAUUSDT"]
+WATCH_PAIRS = ["XAUUSDT"]
 
 
 def _read_status() -> dict:
@@ -817,30 +817,19 @@ def main() -> None:
     tab_live, tab_journal = st.tabs(["Live", "Journal"])
 
     with tab_live:
-        tab_labels = []
-        for wp in WATCH_PAIRS:
-            rp = _cached_readiness(wp, use_session)
-            status = _read_status()
-            ps = (status.get("pairs") or {}).get(wp, {}) if status.get("mode") == "multi" else {}
-            open_mark = " ●" if ps.get("in_basket") else ""
-            tab_labels.append(f"{wp}{open_mark} {rp:.0f}%")
-
-        pair_tabs = st.tabs(tab_labels)
-        for ptab, wp in zip(pair_tabs, WATCH_PAIRS):
-            with ptab:
-                st.session_state.watch_pair = wp
-                _render_pair_live(
-                    wp,
-                    use_session=use_session,
-                    runtime=runtime,
-                    alert_prefs=alert_prefs,
-                    tick_sec=tick_sec,
-                    chart_sec=chart_sec,
-                    c=c,
-                )
-
+        st.session_state.watch_pair = "XAUUSDT"
+        _render_pair_live(
+            "XAUUSDT",
+            use_session=use_session,
+            runtime=runtime,
+            alert_prefs=alert_prefs,
+            tick_sec=tick_sec,
+            chart_sec=chart_sec,
+            c=c,
+        )
         st.caption(
-            f"6 pairs · price {tick_sec}s idle · {CONFIG.basket_price_sec}s in basket · signals {chart_sec}s"
+            f"XAUUSDT · Binance paper · price {tick_sec}s idle · "
+            f"{CONFIG.basket_price_sec}s in basket · fees incl · signals {chart_sec}s"
         )
 
     with tab_journal:

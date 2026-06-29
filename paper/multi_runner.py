@@ -12,7 +12,7 @@ from agent.brain import decide
 from agent.journal import log_decision
 from agent.metrics import format_scan_metrics, gate_checklist
 from agent.snapshot import build_snapshot
-from backtest.engine import _pnl_at_price, _spread_cost, _targets
+from backtest.engine import _pnl_at_price, _targets
 from backtest.guards import TradeGuards
 from backtest.pairs import PAIRS
 from backtest.signals import BarSetup, evaluate_at
@@ -20,13 +20,14 @@ from config import CONFIG
 from paper.alerts import banner_close, banner_open, notify_mac, play_sound
 from paper.basket_state import restore_runtime_basket
 from paper.basket_exit import check_basket_exit
+from paper.fees import paper_close_cost, paper_open_cost, paper_pnl_spread
 from paper.feed import build_frames, refresh_live_bars, refresh_tick_only
 from paper.telemetry import heartbeat as telemetry_heartbeat
 from paper.telemetry import log_event as telemetry_event
 from paper.telemetry import session_start as telemetry_session_start
 from paper.telemetry import write_status as telemetry_status
 
-PAIR_ORDER = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "XAUUSD", "XAUUSDT"]
+PAIR_ORDER = ["XAUUSDT"]
 
 
 def paper_pairs() -> list[str]:
@@ -136,7 +137,7 @@ def run_multi_autopilot(
     start_balance = balance
     states: dict[str, PairState] = {}
     for pair in pairs:
-        st = PairState(pair=pair, spread=_spread_cost(PAIRS[pair], CONFIG.basket_size))
+        st = PairState(pair=pair, spread=paper_pnl_spread(PAIRS[pair], CONFIG.basket_size))
         restored = restore_runtime_basket(pair)
         if restored:
             st.in_basket = True
@@ -203,15 +204,21 @@ def run_multi_autopilot(
                         held_sec=held,
                     )
                     if decision:
-                        reason, exit_pnl = decision.reason, decision.pnl
+                        reason = decision.reason
+                        close_fees = paper_close_cost(spec, price)
+                        exit_pnl = round(decision.pnl - close_fees, 4)
                         balance += exit_pnl
                         st.closes += 1
                         total_closes += 1
                         log_trade(
                             "close_basket", pair=pair, side=st.side, reason=reason,
-                            total_profit=round(exit_pnl, 4), balance=round(balance, 2), held_sec=held,
+                            total_profit=exit_pnl, gross_pnl=round(decision.pnl, 4),
+                            fees=close_fees, balance=round(balance, 2), held_sec=held,
                         )
-                        log.info("EXEC CLOSE (%s) | %s %s | P/L $%.2f | bal=$%.2f", reason, pair, st.side, exit_pnl, balance)
+                        log.info(
+                            "EXEC CLOSE (%s) | %s %s | P/L $%.2f (fees $%.2f) | bal=$%.2f",
+                            reason, pair, st.side, exit_pnl, close_fees, balance,
+                        )
                         play_sound("close", pnl=exit_pnl, enabled=use_sound)
                         if reason == "basket_stop":
                             st.last_sl_close_at = now
@@ -281,6 +288,8 @@ def run_multi_autopilot(
                         setup = evaluate_at(h1, m15, d1, h_idx, m_idx, d_idx, guards=guards)
                         if setup.side == trade_side and setup.passes_guards(guards):
                             tp, sl = _targets(spec, setup)
+                            open_fees = paper_open_cost(spec, price)
+                            balance -= open_fees
                             st.in_basket = True
                             st.side = trade_side
                             st.entry_price = price
@@ -296,9 +305,13 @@ def run_multi_autopilot(
                                 "open_basket", pair=pair, side=st.side, price=st.entry_price,
                                 score=setup.score, adx=round(setup.adx, 1), rsi=round(setup.rsi, 1),
                                 z_score=round(setup.z_score, 2), tp=tp, sl=sl,
+                                fees=open_fees, balance=round(balance, 2),
                                 agent_reason=decision.reasoning, agent_source=decision.source,
                             )
-                            log.info("EXEC OPEN | %s %s | score=%s | %s", pair, st.side.upper(), setup.score, decision.reasoning)
+                            log.info(
+                                "EXEC OPEN | %s %s | score=%s | fees $%.2f | %s",
+                                pair, st.side.upper(), setup.score, open_fees, decision.reasoning,
+                            )
                             play_sound("open", enabled=use_sound)
                             notify_mac("ScalpBot OPEN", f"{pair} {st.side.upper()} @ {st.entry_price:.5f}")
                             banner_open(pair, st.side, st.entry_price, setup.score, setup.adx, setup.rsi, tp, sl)
@@ -352,10 +365,13 @@ def run_multi_autopilot(
                 spec = PAIRS[pair]
                 price = st.frames["last_price"]
                 mark = _pnl_at_price(spec, st.side, st.entry_price, price, CONFIG.basket_size, st.spread)
-                balance += mark
+                close_fees = paper_close_cost(spec, price)
+                exit_pnl = round(mark - close_fees, 4)
+                balance += exit_pnl
                 log_trade(
                     "close_basket", pair=pair, side=st.side, reason="session_shutdown",
-                    total_profit=round(mark, 4), balance=round(balance, 2),
+                    total_profit=exit_pnl, gross_pnl=round(mark, 4), fees=close_fees,
+                    balance=round(balance, 2),
                 )
         log.info(
             "AUTOPILOT MULTI END | scans=%s opens=%s closes=%s | P/L $%+.2f",

@@ -43,10 +43,7 @@ class MT5Config:
     )
 
     symbol: str = os.getenv("MT5_SYMBOL", "XAUUSDT")
-    paper_pairs: str = os.getenv(
-        "MT5_PAPER_PAIRS",
-        "EURUSD,GBPUSD,USDJPY,AUDUSD,XAUUSD,XAUUSDT",
-    )
+    paper_pairs: str = os.getenv("MT5_PAPER_PAIRS", "XAUUSDT")
     symbol_fallbacks: list[str] = field(
         default_factory=lambda: os.getenv(
             "MT5_SYMBOL_FALLBACKS", "XAUUSDT,XAUUSDTm,XAUUSD,XAUUSDm"
@@ -140,6 +137,10 @@ class MT5Config:
     # tick = last price only; bar_range = M5 hi/lo since entry (aligns with backtest)
     basket_exit_mode: str = _env_str("MT5_EXIT_MODE", "bar_range")
     sl_delay_seconds: int = _env_int("MT5_SL_DELAY", 0)
+    # Binance paper — taker fee + notional scale for fee math
+    binance_taker_fee: float = _env_float("MT5_BINANCE_TAKER_FEE", 0.001)
+    binance_maker_fee: float = _env_float("MT5_BINANCE_MAKER_FEE", 0.001)
+    paper_notional_mult: float = _env_float("MT5_PAPER_NOTIONAL_MULT", 10.0)
     demo_only: bool = _env_bool("MT5_DEMO_ONLY", True)
 
     def __post_init__(self) -> None:

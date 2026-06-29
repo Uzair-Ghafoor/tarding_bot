@@ -46,6 +46,30 @@ def _ssl_ctx():
         return ssl.create_default_context()
 
 
+def _binance_fapi_base() -> str:
+    from config import CONFIG
+    if CONFIG.binance_testnet:
+        return "https://testnet.binancefuture.com"
+    return "https://fapi.binance.com"
+
+
+def _binance_price_urls(symbol: str) -> tuple[str, ...]:
+    fapi = _binance_fapi_base()
+    return (
+        f"{fapi}/fapi/v1/ticker/price?symbol={symbol}",
+        f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol}",
+    )
+
+
+def _binance_kline_url(symbol: str, start_ms: int, limit: int) -> tuple[str, ...]:
+    fapi = _binance_fapi_base()
+    q = f"symbol={symbol}&interval=5m&startTime={start_ms}&limit={limit}"
+    return (
+        f"{fapi}/fapi/v1/klines?{q}",
+        f"https://fapi.binance.com/fapi/v1/klines?{q}",
+    )
+
+
 def _resample_m15(m5: pd.DataFrame) -> pd.DataFrame:
     return m5.resample("15min").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
@@ -95,10 +119,7 @@ def _fetch_binance_5m(spec: PairSpec, *, limit: int = 500) -> pd.DataFrame:
     ctx = _ssl_ctx()
     end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     start_ms = end_ms - limit * 5 * 60 * 1000
-    for base in (
-        f"https://api.binance.com/api/v3/klines?symbol={spec.ticker}&interval=5m&startTime={start_ms}&limit={limit}",
-        f"https://fapi.binance.com/fapi/v1/klines?symbol={spec.ticker}&interval=5m&startTime={start_ms}&limit={limit}",
-    ):
+    for base in _binance_kline_url(spec.ticker, start_ms, limit):
         try:
             with urllib.request.urlopen(base, timeout=12, context=ctx) as resp:
                 batch = json.loads(resp.read().decode())
@@ -127,10 +148,7 @@ def _fetch_binance_5m(spec: PairSpec, *, limit: int = 500) -> pd.DataFrame:
 
 def _fetch_binance_tick(spec: PairSpec) -> float | None:
     ctx = _ssl_ctx()
-    for url in (
-        f"https://api.binance.com/api/v3/ticker/price?symbol={spec.ticker}",
-        f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={spec.ticker}",
-    ):
+    for url in _binance_price_urls(spec.ticker):
         try:
             with urllib.request.urlopen(url, timeout=5, context=ctx) as resp:
                 data = json.loads(resp.read().decode())

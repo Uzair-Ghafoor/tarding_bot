@@ -7,7 +7,6 @@ import urllib.request
 
 from backtest.pairs import PairSpec
 from config import CONFIG
-from paper.feed import _ssl_ctx
 
 
 def paper_notional_usd(price: float) -> float:
@@ -22,9 +21,12 @@ def paper_qty_oz(price: float) -> float:
 
 
 def _fetch_book_ticker(symbol: str) -> tuple[float, float] | None:
+    from paper.feed import _binance_fapi_base, _ssl_ctx
+
     ctx = _ssl_ctx()
+    fapi = _binance_fapi_base()
     for url in (
-        f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}",
+        f"{fapi}/fapi/v1/ticker/bookTicker?symbol={symbol}",
         f"https://fapi.binance.com/fapi/v1/ticker/bookTicker?symbol={symbol}",
     ):
         try:

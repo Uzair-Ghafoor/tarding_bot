@@ -143,6 +143,13 @@ class MT5Config:
     paper_notional_mult: float = _env_float("MT5_PAPER_NOTIONAL_MULT", 10.0)
     demo_only: bool = _env_bool("MT5_DEMO_ONLY", True)
 
+    # Binance futures testnet — real test orders (same strategy as paper)
+    binance_testnet: bool = _env_bool("BINANCE_TESTNET", False)
+    binance_api_key: str = os.getenv("BINANCE_API_KEY", "")
+    binance_api_secret: str = os.getenv("BINANCE_API_SECRET", "")
+    binance_symbol: str = _env_str("BINANCE_SYMBOL", "XAUUSDT")
+    binance_leverage: int = _env_int("BINANCE_LEVERAGE", 5)
+
     def __post_init__(self) -> None:
         if not self.min_open_trades:
             self.min_open_trades = self.basket_size

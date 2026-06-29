@@ -19,6 +19,7 @@ from backtest.signals import BarSetup, evaluate_at
 from config import CONFIG
 from paper.alerts import banner_close, banner_open, notify_mac, play_sound
 from paper.basket_state import restore_runtime_basket
+from paper.basket_exit import check_basket_exit
 from paper.feed import build_frames, refresh_live_bars, refresh_tick_only
 from paper.telemetry import heartbeat as telemetry_heartbeat
 from paper.telemetry import log_event as telemetry_event
@@ -173,7 +174,9 @@ def run_multi_autopilot(
                         continue
                 elif now - st.last_price_at >= tick_sec:
                     try:
-                        if st.in_basket:
+                        if st.in_basket and CONFIG.basket_exit_mode == "bar_range":
+                            refresh_live_bars(st.frames, pair)
+                        elif st.in_basket:
                             refresh_tick_only(st.frames, pair)
                         else:
                             refresh_live_bars(st.frames, pair)
@@ -187,18 +190,20 @@ def run_multi_autopilot(
                 price = st.frames["last_price"]
 
                 if st.in_basket and st.side and st.entry_time:
-                    mark = _pnl_at_price(spec, st.side, st.entry_price, price, CONFIG.basket_size, st.spread)
                     held = int((datetime.now(timezone.utc) - st.entry_time).total_seconds())
-                    reason = ""
-                    exit_pnl = mark
-                    if mark >= st.tp:
-                        reason, exit_pnl = "profit", st.tp
-                    elif mark <= -st.sl:
-                        reason, exit_pnl = "basket_stop", -st.sl
-                    elif held >= CONFIG.max_hold_seconds:
-                        reason, exit_pnl = "timeout", mark
-
-                    if reason:
+                    m5 = st.frames.get("m5") if st.frames else None
+                    decision = check_basket_exit(
+                        spec, st.side, st.entry_price, price,
+                        m5=m5,
+                        entry_time=st.entry_time,
+                        tp=st.tp,
+                        sl=st.sl,
+                        spread=st.spread,
+                        basket_size=CONFIG.basket_size,
+                        held_sec=held,
+                    )
+                    if decision:
+                        reason, exit_pnl = decision.reason, decision.pnl
                         balance += exit_pnl
                         st.closes += 1
                         total_closes += 1

@@ -28,6 +28,7 @@ from backtest.pairs import PAIRS
 from backtest.signals import BarSetup, evaluate_at
 from config import CONFIG
 from paper.alerts import banner_close, banner_open, play_sound
+from paper.basket_exit import check_basket_exit
 from paper.feed import build_frames, refresh_live_bars, refresh_tick_only, resolve_paper_pair
 from run_backtest import LIVE_GUARDS
 from session import in_trading_session
@@ -147,7 +148,9 @@ def main() -> None:
                     continue
             elif now - last_price_at >= tick_sec:
                 try:
-                    if in_basket:
+                    if in_basket and CONFIG.basket_exit_mode == "bar_range":
+                        price = refresh_live_bars(frames, pair)
+                    elif in_basket:
                         price = refresh_tick_only(frames, pair)
                     else:
                         price = refresh_live_bars(frames, pair)
@@ -177,18 +180,19 @@ def main() -> None:
                 continue
 
             if in_basket and side and entry_setup:
-                pnl = _pnl_at_price(spec, side, entry_price, price, CONFIG.basket_size, spread)
-                held = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
-                reason = ""
-                exit_pnl = pnl
-                if pnl >= tp:
-                    reason, exit_pnl = "profit", tp
-                elif pnl <= -sl:
-                    reason, exit_pnl = "basket_stop", -sl
-                elif held >= CONFIG.max_hold_seconds:
-                    reason, exit_pnl = "timeout", pnl
-
-                if reason:
+                held = int((datetime.now(timezone.utc) - entry_time).total_seconds()) if entry_time else 0
+                decision = check_basket_exit(
+                    spec, side, entry_price, price,
+                    m5=frames.get("m5"),
+                    entry_time=entry_time or datetime.now(timezone.utc),
+                    tp=tp,
+                    sl=sl,
+                    spread=spread,
+                    basket_size=CONFIG.basket_size,
+                    held_sec=held,
+                )
+                if decision:
+                    reason, exit_pnl = decision.reason, decision.pnl
                     balance += exit_pnl
                     _log_event(
                         "close_basket",

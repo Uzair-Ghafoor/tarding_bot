@@ -41,6 +41,7 @@ from agent.metrics import format_scan_metrics, format_scan_one_line, gate_checkl
 from agent.snapshot import build_snapshot
 from paper.alerts import banner_close, banner_open, notify_mac, play_sound
 from paper.basket_state import restore_runtime_basket
+from paper.basket_exit import check_basket_exit
 from paper.feed import build_frames, refresh_live_bars, refresh_tick_only, resolve_paper_pair
 from paper.telemetry import heartbeat as telemetry_heartbeat
 from paper.telemetry import log_event as telemetry_event
@@ -191,7 +192,9 @@ def run_paper_autopilot(
                     continue
             elif now - last_price_at >= tick_sec:
                 try:
-                    if in_basket:
+                    if in_basket and CONFIG.basket_exit_mode == "bar_range":
+                        refresh_live_bars(frames, pair)
+                    elif in_basket:
                         refresh_tick_only(frames, pair)
                     else:
                         refresh_live_bars(frames, pair)
@@ -206,22 +209,25 @@ def run_paper_autopilot(
             price = frames["last_price"]
 
             if in_basket and side and entry_time:
-                mark = _pnl_at_price(spec, side, entry_price, price, CONFIG.basket_size, spread)
                 held = int((datetime.now(timezone.utc) - entry_time).total_seconds())
+                m5 = frames.get("m5")
+                decision = check_basket_exit(
+                    spec, side, entry_price, price,
+                    m5=m5,
+                    entry_time=entry_time,
+                    tp=tp,
+                    sl=sl,
+                    spread=spread,
+                    basket_size=CONFIG.basket_size,
+                    held_sec=held,
+                )
+                mark = _pnl_at_price(spec, side, entry_price, price, CONFIG.basket_size, spread)
                 basket = _basket_dict(
                     True, side=side, entry_price=entry_price, mark_pnl=round(mark, 3),
                     tp=tp, sl=sl, held_sec=held,
                 )
-                reason = ""
-                exit_pnl = mark
-                if mark >= tp:
-                    reason, exit_pnl = "profit", tp
-                elif mark <= -sl:
-                    reason, exit_pnl = "basket_stop", -sl
-                elif held >= CONFIG.max_hold_seconds:
-                    reason, exit_pnl = "timeout", mark
-
-                if reason:
+                if decision:
+                    reason, exit_pnl = decision.reason, decision.pnl
                     balance += exit_pnl
                     closes += 1
                     _log_trade("close_basket", pair=pair, side=side, reason=reason,

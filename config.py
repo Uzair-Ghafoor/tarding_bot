@@ -22,6 +22,11 @@ def _env_int(name: str, default: int) -> int:
     return int(val) if val not in (None, "") else default
 
 
+def _env_str(name: str, default: str) -> str:
+    v = os.getenv(name)
+    return v.strip() if v else default
+
+
 def _env_float(name: str, default: float) -> float:
     val = os.getenv(name)
     return float(val) if val not in (None, "") else default
@@ -132,6 +137,9 @@ class MT5Config:
 
     poll_seconds: float = _env_float("MT5_POLL_SECONDS", 0.5)
     basket_price_sec: float = _env_float("MT5_BASKET_PRICE_SEC", 0.25)
+    # tick = last price only; bar_range = M5 hi/lo since entry (aligns with backtest)
+    basket_exit_mode: str = _env_str("MT5_EXIT_MODE", "bar_range")
+    sl_delay_seconds: int = _env_int("MT5_SL_DELAY", 0)
     demo_only: bool = _env_bool("MT5_DEMO_ONLY", True)
 
     def __post_init__(self) -> None:

@@ -1,1 +1,1 @@
-{"mode": "multi", "pairs": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "XAUUSD", "XAUUSDT"], "session_filter": true, "brain": "rules", "started": "2026-06-29T12:37:18.949966+00:00", "hours": 8760.0}
+{"mode": "multi", "pairs": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "XAUUSD", "XAUUSDT"], "session_filter": true, "brain": "rules", "started": "2026-06-29T15:53:19.548415+00:00", "hours": 8760.0}

@@ -130,7 +130,7 @@ class MT5Config:
     min_expectancy: float = _env_float("MT5_MIN_EV", 0.0)
     use_ev_gate: bool = _env_bool("MT5_USE_EV_GATE", True)
 
-    use_session_filter: bool = _env_bool("MT5_USE_SESSION", True)
+    use_session_filter: bool = _env_bool("MT5_USE_SESSION", False)
     session_windows_utc: list[tuple[float, float]] = field(
         default_factory=lambda: [(7.0, 11.0), (12.0, 17.0)]
     )

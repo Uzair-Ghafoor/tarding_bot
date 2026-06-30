@@ -31,11 +31,6 @@ from paper.telemetry import write_status as telemetry_status
 PAIR_ORDER = ["XAUUSDT"]
 
 
-def _scaled_balance(wallet_start: float, wallet_now: float) -> float:
-    """Map testnet wallet P/L onto reference_balance ($30) scale."""
-    return round(CONFIG.reference_balance + (wallet_now - wallet_start), 2)
-
-
 def paper_pairs() -> list[str]:
     raw = (CONFIG.paper_pairs or "").strip()
     if raw:
@@ -145,7 +140,6 @@ def run_multi_autopilot(
             "hours": hours,
         }, f)
 
-    wallet_start = 0.0
     balance = CONFIG.reference_balance
     start_balance = balance
     states: dict[str, PairState] = {}
@@ -178,12 +172,8 @@ def run_multi_autopilot(
             st.in_basket = False
             st.side = None
             st.entry_setup = None
-        wallet_start = binance.get_usdt_balance()
         balance = start_balance = CONFIG.reference_balance
-        log.info(
-            "BINANCE | tracking $%.2f account (testnet wallet baseline $%.2f)",
-            balance, wallet_start,
-        )
+        log.info("BINANCE | fresh $%.2f session (exchange orders, paper P/L tracking)", balance)
 
     telemetry_session_start(pair="MULTI", brain=brain_label, hours=hours, balance=balance)
     total_scans = total_opens = total_closes = total_skips = 0
@@ -244,8 +234,9 @@ def run_multi_autopilot(
                         if binance and spec.ticker == CONFIG.binance_symbol:
                             try:
                                 binance.close_market(CONFIG.binance_symbol)
-                                balance = _scaled_balance(wallet_start, binance.get_usdt_balance())
-                                exit_pnl = round(balance - bal_before, 4)
+                                close_fees = paper_close_cost(spec, price)
+                                exit_pnl = round(decision.pnl - close_fees, 4)
+                                balance += exit_pnl
                                 gross_pnl = round(decision.pnl, 4)
                             except Exception as exc:
                                 log.error("BINANCE CLOSE failed: %s", exc)
@@ -337,13 +328,12 @@ def run_multi_autopilot(
                         if setup.side == trade_side and setup.passes_guards(guards):
                             tp, sl = _targets(spec, setup)
                             use_binance = binance is not None and spec.ticker == CONFIG.binance_symbol
-                            open_fees = 0.0
-                            entry_px = price
                             if use_binance:
                                 try:
                                     fill = binance.open_market(CONFIG.binance_symbol, trade_side, price)
                                     entry_px = fill.avg_price
-                                    balance = _scaled_balance(wallet_start, binance.get_usdt_balance())
+                                    open_fees = paper_open_cost(spec, entry_px)
+                                    balance -= open_fees
                                 except Exception as exc:
                                     log.error("BINANCE OPEN failed: %s", exc)
                                     st.skips += 1
@@ -352,6 +342,7 @@ def run_multi_autopilot(
                             else:
                                 open_fees = paper_open_cost(spec, price)
                                 balance -= open_fees
+                                entry_px = price
                             st.in_basket = True
                             st.side = trade_side
                             st.entry_price = entry_px
@@ -430,15 +421,12 @@ def run_multi_autopilot(
                 use_binance = binance is not None and spec.ticker == CONFIG.binance_symbol
                 if use_binance:
                     try:
-                        bal_before = balance
                         binance.close_market(CONFIG.binance_symbol)
-                        balance = _scaled_balance(wallet_start, binance.get_usdt_balance())
-                        exit_pnl = round(balance - bal_before, 4)
-                        gross_pnl = round(
-                            _pnl_at_price(spec, st.side, st.entry_price, price, CONFIG.basket_size, st.spread),
-                            4,
-                        )
-                        close_fees = 0.0
+                        close_fees = paper_close_cost(spec, price)
+                        mark = _pnl_at_price(spec, st.side, st.entry_price, price, CONFIG.basket_size, st.spread)
+                        exit_pnl = round(mark - close_fees, 4)
+                        gross_pnl = round(mark, 4)
+                        balance += exit_pnl
                     except Exception as exc:
                         log.error("BINANCE shutdown close failed: %s", exc)
                         continue

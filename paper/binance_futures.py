@@ -91,7 +91,11 @@ class BinanceFuturesClient:
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=15, context=self._ctx) as resp:
-                return json.loads(resp.read().decode())
+                raw = resp.read().decode()
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError:
+                    return raw
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode()
             raise RuntimeError(f"Binance {method} {path} failed ({exc.code}): {detail}") from exc
@@ -140,6 +144,10 @@ class BinanceFuturesClient:
             )
         except RuntimeError:
             pass
+
+    def sign_tradfi_agreement(self) -> None:
+        """Required once per account before trading XAUUSDT and other TradFi perps."""
+        self._request("POST", "/fapi/v1/stock/contract", {}, signed=True)
 
     def get_usdt_balance(self) -> float:
         rows = self._request("GET", "/fapi/v2/balance", signed=True)
@@ -236,11 +244,18 @@ def create_binance_client(log) -> BinanceFuturesClient | None:
         leverage=CONFIG.binance_leverage,
     )
     client.load_symbol_rules(CONFIG.binance_symbol)
+    try:
+        client.sign_tradfi_agreement()
+        log.info("BINANCE | TradFi-Perps agreement signed")
+    except RuntimeError as exc:
+        if "-4411" not in str(exc) and "SUCCESS" not in str(exc):
+            log.warning("BINANCE | TradFi agreement: %s", exc)
     bal = client.get_usdt_balance()
     log.info(
-        "BINANCE TESTNET | %s | leverage=%sx | wallet=$%.2f",
+        "BINANCE TESTNET | %s | leverage=%sx | wallet=$%.2f (display as $%.2f account)",
         CONFIG.binance_symbol,
         CONFIG.binance_leverage,
         bal,
+        CONFIG.reference_balance,
     )
     return client

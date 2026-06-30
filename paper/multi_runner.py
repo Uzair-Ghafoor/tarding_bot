@@ -31,6 +31,11 @@ from paper.telemetry import write_status as telemetry_status
 PAIR_ORDER = ["XAUUSDT"]
 
 
+def _scaled_balance(wallet_start: float, wallet_now: float) -> float:
+    """Map testnet wallet P/L onto reference_balance ($30) scale."""
+    return round(CONFIG.reference_balance + (wallet_now - wallet_start), 2)
+
+
 def paper_pairs() -> list[str]:
     raw = (CONFIG.paper_pairs or "").strip()
     if raw:
@@ -140,15 +145,13 @@ def run_multi_autopilot(
             "hours": hours,
         }, f)
 
+    wallet_start = 0.0
     balance = CONFIG.reference_balance
     start_balance = balance
-    if binance:
-        balance = binance.get_usdt_balance()
-        start_balance = balance
     states: dict[str, PairState] = {}
     for pair in pairs:
         st = PairState(pair=pair, spread=paper_pnl_spread(PAIRS[pair], CONFIG.basket_size))
-        restored = restore_runtime_basket(pair)
+        restored = None if binance else restore_runtime_basket(pair)
         if restored:
             st.in_basket = True
             st.side = restored["side"]
@@ -165,25 +168,22 @@ def run_multi_autopilot(
     if binance:
         symbol = CONFIG.binance_symbol
         pos = binance.get_position(symbol)
-        for pair, st in states.items():
-            spec = PAIRS[pair]
-            if spec.ticker != symbol:
-                continue
-            if pos and not st.in_basket:
-                st.in_basket = True
-                st.side = pos.side
-                st.entry_price = pos.entry_price
-                st.entry_time = datetime.now(timezone.utc)
-                log.warning("SYNC | exchange %s %s qty=%.4f @ %.5f", symbol, pos.side, pos.qty, pos.entry_price)
-            elif st.in_basket and pos is None:
-                log.warning("SYNC | journal open but no exchange position — clearing %s basket", pair)
-                st.in_basket = False
-                st.side = None
-            elif st.in_basket and pos:
-                st.entry_price = pos.entry_price
-                st.side = pos.side
-        balance = binance.get_usdt_balance()
-        start_balance = balance
+        if pos:
+            try:
+                binance.close_market(symbol)
+                log.info("CLEAN | closed %s %s qty=%.4f @ %.5f", symbol, pos.side, pos.qty, pos.entry_price)
+            except Exception as exc:
+                log.error("CLEAN | failed to close %s: %s", symbol, exc)
+        for st in states.values():
+            st.in_basket = False
+            st.side = None
+            st.entry_setup = None
+        wallet_start = binance.get_usdt_balance()
+        balance = start_balance = CONFIG.reference_balance
+        log.info(
+            "BINANCE | tracking $%.2f account (testnet wallet baseline $%.2f)",
+            balance, wallet_start,
+        )
 
     telemetry_session_start(pair="MULTI", brain=brain_label, hours=hours, balance=balance)
     total_scans = total_opens = total_closes = total_skips = 0
@@ -243,8 +243,8 @@ def run_multi_autopilot(
                         close_fees = 0.0
                         if binance and spec.ticker == CONFIG.binance_symbol:
                             try:
-                                fill = binance.close_market(CONFIG.binance_symbol)
-                                balance = binance.get_usdt_balance()
+                                binance.close_market(CONFIG.binance_symbol)
+                                balance = _scaled_balance(wallet_start, binance.get_usdt_balance())
                                 exit_pnl = round(balance - bal_before, 4)
                                 gross_pnl = round(decision.pnl, 4)
                             except Exception as exc:
@@ -343,7 +343,7 @@ def run_multi_autopilot(
                                 try:
                                     fill = binance.open_market(CONFIG.binance_symbol, trade_side, price)
                                     entry_px = fill.avg_price
-                                    balance = binance.get_usdt_balance()
+                                    balance = _scaled_balance(wallet_start, binance.get_usdt_balance())
                                 except Exception as exc:
                                     log.error("BINANCE OPEN failed: %s", exc)
                                     st.skips += 1
@@ -432,7 +432,7 @@ def run_multi_autopilot(
                     try:
                         bal_before = balance
                         binance.close_market(CONFIG.binance_symbol)
-                        balance = binance.get_usdt_balance()
+                        balance = _scaled_balance(wallet_start, binance.get_usdt_balance())
                         exit_pnl = round(balance - bal_before, 4)
                         gross_pnl = round(
                             _pnl_at_price(spec, st.side, st.entry_price, price, CONFIG.basket_size, st.spread),

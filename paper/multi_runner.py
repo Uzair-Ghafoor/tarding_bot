@@ -68,13 +68,17 @@ class PairState:
     gates_total: int = 8
     ready: bool = False
     spread: float = 0.0
+    basket_qty: float = 0.0
 
     def status_dict(self, price: float) -> dict[str, Any]:
         mark = 0.0
         if self.in_basket and self.side:
             spec = PAIRS[self.pair]
+            kw = {"qty_oz": self.basket_qty} if self.basket_qty > 0 else {}
             mark = round(
-                _pnl_at_price(spec, self.side, self.entry_price, price, CONFIG.basket_size, self.spread),
+                _pnl_at_price(
+                    spec, self.side, self.entry_price, price, CONFIG.basket_size, self.spread, **kw,
+                ),
                 3,
             )
         return {
@@ -142,6 +146,7 @@ def run_multi_autopilot(
 
     balance = CONFIG.reference_balance
     start_balance = balance
+    wallet_start = 0.0
     states: dict[str, PairState] = {}
     for pair in pairs:
         st = PairState(pair=pair, spread=paper_pnl_spread(PAIRS[pair], CONFIG.basket_size))
@@ -172,8 +177,13 @@ def run_multi_autopilot(
             st.in_basket = False
             st.side = None
             st.entry_setup = None
+            st.basket_qty = 0.0
+        wallet_start = binance.get_usdt_balance()
         balance = start_balance = CONFIG.reference_balance
-        log.info("BINANCE | fresh $%.2f session (exchange orders, paper P/L tracking)", balance)
+        log.info(
+            "BINANCE | $%.2f tracked account | exchange wallet $%.2f",
+            balance, wallet_start,
+        )
 
     telemetry_session_start(pair="MULTI", brain=brain_label, hours=hours, balance=balance)
     total_scans = total_opens = total_closes = total_skips = 0
@@ -233,11 +243,13 @@ def run_multi_autopilot(
                         close_fees = 0.0
                         if binance and spec.ticker == CONFIG.binance_symbol:
                             try:
-                                binance.close_market(CONFIG.binance_symbol)
-                                close_fees = paper_close_cost(spec, price)
-                                exit_pnl = round(decision.pnl - close_fees, 4)
+                                fill = binance.close_market(CONFIG.binance_symbol)
+                                if fill is None:
+                                    continue
+                                exit_pnl = round(fill.net_pnl, 4)
+                                gross_pnl = round(fill.realized_pnl, 4)
+                                close_fees = round(fill.commission, 4)
                                 balance += exit_pnl
-                                gross_pnl = round(decision.pnl, 4)
                             except Exception as exc:
                                 log.error("BINANCE CLOSE failed: %s", exc)
                                 continue
@@ -253,6 +265,8 @@ def run_multi_autopilot(
                             total_profit=exit_pnl, gross_pnl=gross_pnl,
                             fees=close_fees, balance=round(balance, 2), held_sec=held,
                             execution="binance_testnet" if binance else "paper",
+                            exchange_pnl=exit_pnl if binance else None,
+                            exchange_wallet=round(binance.get_usdt_balance(), 2) if binance else None,
                         )
                         log.info(
                             "EXEC CLOSE (%s) | %s %s | P/L $%.2f (fees $%.2f) | bal=$%.2f",
@@ -266,6 +280,7 @@ def run_multi_autopilot(
                         st.last_basket_close_at = now
                         st.side = None
                         st.entry_setup = None
+                        st.basket_qty = 0.0
 
                 if st.in_basket:
                     continue
@@ -332,8 +347,9 @@ def run_multi_autopilot(
                                 try:
                                     fill = binance.open_market(CONFIG.binance_symbol, trade_side, price)
                                     entry_px = fill.avg_price
-                                    open_fees = paper_open_cost(spec, entry_px)
-                                    balance -= open_fees
+                                    open_fees = round(fill.commission, 4)
+                                    balance += round(fill.net_pnl, 4)
+                                    st.basket_qty = fill.qty
                                 except Exception as exc:
                                     log.error("BINANCE OPEN failed: %s", exc)
                                     st.skips += 1
@@ -343,6 +359,7 @@ def run_multi_autopilot(
                                 open_fees = paper_open_cost(spec, price)
                                 balance -= open_fees
                                 entry_px = price
+                                st.basket_qty = 0.0
                             st.in_basket = True
                             st.side = trade_side
                             st.entry_price = entry_px
@@ -403,6 +420,11 @@ def run_multi_autopilot(
                 skips=total_skips,
                 in_basket=any_in_basket,
             )
+            if binance:
+                wallet_now = binance.get_usdt_balance()
+                status_kw["exchange_wallet"] = round(wallet_now, 2)
+                status_kw["exchange_pnl"] = round(wallet_now - wallet_start, 2)
+                status_kw["binance_testnet"] = True
             if now - last_status_at >= 60:
                 telemetry_heartbeat(**status_kw)
                 last_status_at = now
@@ -421,12 +443,21 @@ def run_multi_autopilot(
                 use_binance = binance is not None and spec.ticker == CONFIG.binance_symbol
                 if use_binance:
                     try:
-                        binance.close_market(CONFIG.binance_symbol)
-                        close_fees = paper_close_cost(spec, price)
-                        mark = _pnl_at_price(spec, st.side, st.entry_price, price, CONFIG.basket_size, st.spread)
-                        exit_pnl = round(mark - close_fees, 4)
-                        gross_pnl = round(mark, 4)
-                        balance += exit_pnl
+                        fill = binance.close_market(CONFIG.binance_symbol)
+                        if fill:
+                            close_fees = round(fill.commission, 4)
+                            exit_pnl = round(fill.net_pnl, 4)
+                            gross_pnl = round(fill.realized_pnl, 4)
+                            balance += exit_pnl
+                        else:
+                            close_fees = paper_close_cost(spec, price)
+                            mark = _pnl_at_price(
+                                spec, st.side, st.entry_price, price, CONFIG.basket_size, st.spread,
+                                qty_oz=st.basket_qty or None,
+                            )
+                            exit_pnl = round(mark - close_fees, 4)
+                            gross_pnl = round(mark, 4)
+                            balance += exit_pnl
                     except Exception as exc:
                         log.error("BINANCE shutdown close failed: %s", exc)
                         continue

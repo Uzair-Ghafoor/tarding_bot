@@ -27,6 +27,12 @@ class FillResult:
     qty: float
     avg_price: float
     order_id: int
+    realized_pnl: float = 0.0
+    commission: float = 0.0
+
+    @property
+    def net_pnl(self) -> float:
+        return self.realized_pnl - self.commission
 
 
 @dataclass
@@ -149,6 +155,16 @@ class BinanceFuturesClient:
         """Required once per account before trading XAUUSDT and other TradFi perps."""
         self._request("POST", "/fapi/v1/stock/contract", {}, signed=True)
 
+    def _fill_pnl(self, symbol: str, order_id: int) -> tuple[float, float]:
+        rows = self._request(
+            "GET", "/fapi/v1/userTrades",
+            {"symbol": symbol, "orderId": order_id},
+            signed=True,
+        )
+        realized = sum(float(r.get("realizedPnl", 0)) for r in rows)
+        commission = sum(float(r.get("commission", 0)) for r in rows)
+        return realized, commission
+
     def get_usdt_balance(self) -> float:
         rows = self._request("GET", "/fapi/v2/balance", signed=True)
         for row in rows:
@@ -195,12 +211,16 @@ class BinanceFuturesClient:
             },
             signed=True,
         )
+        order_id = int(data["orderId"])
+        realized, commission = self._fill_pnl(symbol, order_id)
         return FillResult(
             symbol=symbol,
             side=side,
             qty=float(data.get("executedQty", qty)),
             avg_price=float(data.get("avgPrice", price)),
-            order_id=int(data["orderId"]),
+            order_id=order_id,
+            realized_pnl=realized,
+            commission=commission,
         )
 
     def close_market(self, symbol: str) -> FillResult | None:
@@ -220,12 +240,16 @@ class BinanceFuturesClient:
             },
             signed=True,
         )
+        order_id = int(data["orderId"])
+        realized, commission = self._fill_pnl(symbol, order_id)
         return FillResult(
             symbol=symbol,
             side=pos.side,
             qty=float(data.get("executedQty", pos.qty)),
             avg_price=float(data.get("avgPrice", 0)),
-            order_id=int(data["orderId"]),
+            order_id=order_id,
+            realized_pnl=realized,
+            commission=commission,
         )
 
 

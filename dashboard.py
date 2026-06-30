@@ -222,7 +222,10 @@ def _trade_stats(trades: list[dict], *, pair: str | None = None) -> dict:
             opens += 1
         elif r.get("event") == "close_basket":
             closes += 1
-            pnl = float(r.get("total_profit", 0))
+            if r.get("execution") == "binance_testnet" and r.get("exchange_pnl") is not None:
+                pnl = float(r["exchange_pnl"])
+            else:
+                pnl = float(r.get("total_profit", 0))
             bal = float(r.get("balance", bal + pnl))
             wins += int(pnl >= 0)
             closed.append(r)
@@ -459,6 +462,7 @@ def _gather_state(pair: str, frames: dict, use_session: bool) -> dict:
         "scan_age": scan_age, "sess": sess, "basket": basket, "bias": bias, "hist": hist,
         "ready_pct": ready_pct, "decisions": decisions, "markers": trade_markers(session_trades, pair),
         "reasons": reasons, "why": ww, "waterfall": wf, "bot_live": bot_live, "stale_basket": stale_basket,
+        "status": status,
     }
 
 
@@ -549,6 +553,18 @@ def _paint_live(slots: dict, pair: str, use_session: bool, state: dict, c: dict,
     bal_s = f"${tstats['balance']:.2f}"
     pnl_s = f"${tstats['pnl']:+.2f}"
     pnl_col = c["green"] if tstats["pnl"] >= 0 else c["red"]
+    exchange_note = ""
+    status = state.get("status") or {}
+    if status.get("binance_testnet"):
+        ex_pnl = float(status.get("exchange_pnl", tstats["pnl"]))
+        ex_wallet = float(status.get("exchange_wallet", 0))
+        pnl_s = f"${ex_pnl:+.2f}"
+        pnl_col = c["green"] if ex_pnl >= 0 else c["red"]
+        exchange_note = (
+            f'<div style="margin-top:8px;color:{c["muted"]};font-size:12px">'
+            f'Binance testnet wallet <b>${ex_wallet:.2f}</b> · exchange P/L <b style="color:{pnl_col}">${ex_pnl:+.2f}</b>'
+            f' · bot balance tracks real fills</div>'
+        )
     closed_s = str(tstats["closes"])
     wins_s = f"{tstats['wins']}W"
     wr_s = f"{tstats['wr']:.0f}%"
@@ -565,6 +581,7 @@ def _paint_live(slots: dict, pair: str, use_session: bool, state: dict, c: dict,
         f'{stat_box("ADX", adx_s, "bar", c)}'
         f'{stat_box("RSI", rsi_s, "live", c)}'
         f'</div>'
+        f'{exchange_note}'
         + (_recent_trades_html(tstats.get("closed") or [], c) if tstats.get("closed") else ""),
         unsafe_allow_html=True,
     )

@@ -81,12 +81,24 @@ def _gold_oz_equiv(basket_size: int) -> float:
     return 100.0 * CONFIG.lot_size * basket_size
 
 
+def _position_oz(spec: PairSpec, price: float) -> float:
+    """Oz exposure for P/L — real Binance qty on testnet, MT5 lot model in paper."""
+    if spec.name == "XAUUSDT" and CONFIG.binance_testnet:
+        from paper.fees import paper_qty_oz
+        return paper_qty_oz(price)
+    if spec.name in ("XAUUSD", "XAUUSDT"):
+        return _gold_oz_equiv(CONFIG.basket_size)
+    return 0.0
+
+
 def _pnl_at_price(
-    spec: PairSpec, side: str, entry: float, price: float, basket_size: int, spread: float
+    spec: PairSpec, side: str, entry: float, price: float, basket_size: int, spread: float,
+    *, qty_oz: float | None = None,
 ) -> float:
     move = (price - entry) if side == "buy" else (entry - price)
     if spec.name in ("XAUUSD", "XAUUSDT"):
-        return move * _gold_oz_equiv(basket_size) - spread
+        oz = qty_oz if qty_oz is not None else _position_oz(spec, entry)
+        return move * oz - spread
     pips = move / spec.pip_size
     units = CONFIG.lot_size / 0.01
     return pips * spec.pip_value_usd * units * basket_size - spread
